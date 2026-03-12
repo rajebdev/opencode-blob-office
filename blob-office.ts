@@ -127,10 +127,25 @@ export function getActivityScale(agentId: string): number {
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
+	// File-based diagnostic - guaranteed visible
+	const diagFile = `${process.env.HOME}/.config/opencode/plugins/blob-office-diag.txt`;
+	const diag = (msg: string) => {
+		const ts = new Date().toISOString();
+		const line = `[${ts}] ${msg}\n`;
+		try {
+			Bun.write(diagFile, line, { append: true });
+		} catch {}
+		console.log(`[blob-office] ${msg}`);
+	};
+	
+	diag("Plugin initialization START");
+	
 	// Clear any stale activity data from previous sessions
 	agentFileActivity.clear();
 
-	const PORT = 2727;
+	const BASE_PORT = 2727;
+	const MAX_PORT_ATTEMPTS = 10;
+	let actualPort = BASE_PORT;
 	const agents = new Map<string, AgentState>();
 	const clients = new Set<globalThis.WebSocket>();
 
@@ -152,13 +167,12 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		}
 	};
 
-	// Helper to show system notification on macOS
-	const notify = async (title: string, message: string) => {
-		try {
-			await $`osascript -e 'display notification "${message}" with title "${title}"'`;
-		} catch {
+	// Helper to show system notification on macOS (fire-and-forget)
+	const notify = (title: string, message: string): void => {
+		// Don't await - notifications should never block the plugin
+		$`osascript -e 'display notification "${message}" with title "${title}"'`.catch(() => {
 			// Silently fail if notifications aren't available
-		}
+		});
 	};
 
 	// ── Broadcast to all connected clients ──────────────────────────────────
@@ -234,8 +248,8 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					: ["xdg-open", viewer];
 
 		try {
-			const proc = Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
-			await proc.exited;
+			// Don't await - opening browser should never block the plugin
+			Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
 		} catch {
 			log("info", `Open viewer manually: ${viewer}`);
 		}
@@ -300,182 +314,160 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		}, 1000); // Check every second
 	}
 
-	try {
-		wss = Bun.serve({
-			port: PORT,
-			fetch(req, server) {
-				// Handle WebSocket upgrade
-				const url = new URL(req.url);
-				if (url.pathname === "/ws" || url.pathname === "/") {
-					const success = server.upgrade(req, { data: {} });
-					if (success) return undefined;
-					return new Response("WebSocket upgrade failed", { status: 400 });
-				}
-				return new Response("Not Found", { status: 404 });
-			},
-			websocket: {
-				open(ws) {
-					log("info", "Client connected");
-					notify("Blob Office", "Viewer connected");
-					clients.add(ws as unknown as globalThis.WebSocket);
-					// Send current state immediately on connect
-					ws.send(
-						JSON.stringify({ type: "snapshot", agents: [...agents.values()] }),
-					);
+	console.log("[blob-office] Starting WebSocket server setup...");
+	diag("Starting WebSocket server setup...");
+	
+	for (let portAttempt = 0; portAttempt < MAX_PORT_ATTEMPTS; portAttempt++) {
+		const tryPort = BASE_PORT + portAttempt;
+		console.log(`[blob-office] Attempting port ${tryPort}...`);
+			diag(`Attempting port ${tryPort}...`);
+		try {
+			wss = Bun.serve({
+				port: tryPort,
+				fetch(req, server) {
+					const url = new URL(req.url);
+					if (url.pathname === "/ws" || url.pathname === "/") {
+						const success = server.upgrade(req, { data: {} });
+						if (success) return undefined;
+						return new Response("WebSocket upgrade failed", { status: 400 });
+					}
+					return new Response("Not Found", { status: 404 });
 				},
-				close(ws) {
-					log("info", "Client disconnected");
-					clients.delete(ws as unknown as globalThis.WebSocket);
-				},
-				message(ws, message) {
-					// Handle incoming sync messages from other plugin instances
-					try {
-						const msg = JSON.parse(message.toString());
-						if (
-							msg.type === "agent_update" ||
-							msg.type === "full_sync" ||
-							msg.type === "snapshot"
-						) {
-							// Merge incoming agents from client instances - ADD only, don't remove
-							for (const agent of msg.agents) {
-								if (!agents.has(agent.id)) {
-									agents.set(agent.id, agent);
-								} else {
-									// Update existing agent with newer data
-									const existing = agents.get(agent.id)!;
-									// Only update if the incoming agent has a newer 'since' timestamp
-									if (agent.since >= existing.since) {
-										Object.assign(existing, agent);
+				websocket: {
+					open(ws) {
+						log("info", "Client connected");
+						notify("Blob Office", "Viewer connected");
+						clients.add(ws as unknown as globalThis.WebSocket);
+						ws.send(
+							JSON.stringify({ type: "snapshot", agents: [...agents.values()] }),
+						);
+					},
+					close(ws) {
+						log("info", "Client disconnected");
+						clients.delete(ws as unknown as globalThis.WebSocket);
+					},
+					message(ws, message) {
+						try {
+							const msg = JSON.parse(message.toString());
+							if (
+								msg.type === "agent_update" ||
+								msg.type === "full_sync" ||
+								msg.type === "snapshot"
+							) {
+								for (const agent of msg.agents) {
+									if (!agents.has(agent.id)) {
+										agents.set(agent.id, agent);
+									} else {
+										const existing = agents.get(agent.id)!;
+										if (agent.since >= existing.since) {
+											Object.assign(existing, agent);
+										}
 									}
 								}
+								log(
+									"info",
+									`Merged ${msg.agents.length} agents from client, total: ${agents.size}`,
+								);
+								broadcast();
 							}
-							log(
-								"info",
-								`Merged ${msg.agents.length} agents from client, total: ${agents.size}`,
-							);
-							// Re-broadcast to all connected viewers
-							broadcast();
+						} catch {
 						}
-					} catch {
-						// Ignore parse errors
-					}
+					},
 				},
-			},
-		});
-		isServerInstance = true;
+			});
+			actualPort = tryPort;
+			isServerInstance = true;
+			console.log(`[blob-office] Server started successfully on port ${tryPort}`);
+			break;
+		} catch (err) {
+			console.log(`[blob-office] Port ${tryPort} failed:`, (err as Error).message);
+			if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+				log("warn", `Port ${tryPort} in use, trying next...`);
+				continue;
+			}
+			throw err;
+		}
+	}
+
+	if (isServerInstance) {
+		console.log("[blob-office] Server instance - setting up heartbeat and cleanup...");
 		startHeartbeat();
 		startIdleCleanup();
-		log("info", `WebSocket server running on ws://localhost:${PORT}`);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-			log(
-				"warn",
-				"Port 2727 already in use — connecting to existing server as client",
-			);
-			serverWasAlreadyRunning = true;
-			// Connect to existing server as a client to receive broadcasts
-			// and sync agent state
-			const wsUrl = `ws://localhost:${PORT}`;
-			syncWs = new WebSocket(wsUrl);
+		const wsUrl = `ws://localhost:${actualPort}/ws`;
+		const viewerUrl = `file://${process.env.HOME}/.config/opencode/plugins/blob-office.html`;
+		log("info", `WebSocket server running on ${wsUrl}`);
+		console.log("[blob-office] About to call showToast...");
+		
+		// Make showToast truly non-blocking with a timeout
+		const toastPromise = client?.tui?.showToast?.({
+			body: {
+				title: "Blob Office",
+				message: `WebSocket: ${wsUrl}`,
+				variant: "info",
+				duration: 8000,
+			},
+		});
+		
+		// Don't await - let it complete in background with timeout
+		if (toastPromise) {
+			Promise.race([
+				toastPromise,
+				new Promise((_, reject) => setTimeout(() => reject(new Error("Toast timeout")), 2000))
+			]).then(() => {
+				console.log("[blob-office] showToast completed");
+			}).catch((e) => {
+				console.log("[blob-office] showToast failed or timed out:", e);
+			});
+		} else {
+			console.log("[blob-office] showToast not available");
+		}
+		
+		console.log(`[blob-office] WebSocket: ${wsUrl}`);
+		console.log(`[blob-office] Open viewer: ${viewerUrl}`);
+	} else {
+		console.log("[blob-office] No server - connecting as client...");
+		log("warn", "No available port found, connecting to existing server as client");
+		serverWasAlreadyRunning = true;
+		const wsUrl = `ws://localhost:${BASE_PORT}`;
+		syncWs = new WebSocket(wsUrl);
 
 			syncWs.onopen = () => {
-				log("info", "Connected to existing Blob Office server as client");
-				// Send full sync of our local agents to the server
-				// This ensures agents from all instances are visible
-				if (agents.size > 0) {
-					const syncMsg = JSON.stringify({
-						type: "full_sync",
-						agents: [...agents.values()],
-					});
-					syncWs?.send(syncMsg);
-					log("info", `Sent ${agents.size} agents to server during sync`);
-				} else {
-					log("info", "No local agents to sync to server");
-				}
-			};
+			log("info", "Connected to existing Blob Office server as client");
+			if (agents.size > 0) {
+				const syncMsg = JSON.stringify({
+					type: "full_sync",
+					agents: [...agents.values()],
+				});
+				syncWs?.send(syncMsg);
+				log("info", `Sent ${agents.size} agents to server during sync`);
+			} else {
+				log("info", "No local agents to sync to server");
+			}
+		};
 
-			syncWs.onmessage = (ev) => {
-				try {
-					const msg = JSON.parse(ev.data);
-					// When we receive a snapshot from the server, merge agents
-					if (msg.type === "snapshot") {
-						// Merge server's agents with our local agents
-						// This keeps our local state in sync
-						for (const agent of msg.agents) {
-							if (!agents.has(agent.id)) {
-								// New agent from another instance - add it
-								agents.set(agent.id, agent);
-							} else {
-								// Update existing agent with server data
-								const existing = agents.get(agent.id)!;
-								Object.assign(existing, agent);
-							}
+		syncWs.onmessage = (ev) => {
+			try {
+				const msg = JSON.parse(ev.data);
+				if (msg.type === "snapshot") {
+					for (const agent of msg.agents) {
+						if (!agents.has(agent.id)) {
+							agents.set(agent.id, agent);
+						} else {
+							const existing = agents.get(agent.id)!;
+							Object.assign(existing, agent);
 						}
 					}
-				} catch {
-					/* ignore parse errors */
 				}
-			};
+			} catch {
+			}
+		};
 
-			syncWs.onerror = () => {
-				log("warn", "Error connecting to existing server");
-			};
-		} else {
-			log("error", `Failed to start WebSocket server: ${err}`);
-		}
+		syncWs.onerror = () => {
+			log("warn", "Error connecting to existing server");
+		};
 	}
 
-	// ── Cleanup on process exit ───────────────────────────────────────────────
-
-	async function cleanup(signal: string) {
-		log("info", `Received ${signal}, shutting down...`);
-
-		// Clear any pending broadcast
-		if (broadcastTimeout) {
-			clearTimeout(broadcastTimeout);
-			broadcastTimeout = null;
-		}
-
-		// Close sync connection to central server
-		if (syncWs) {
-			if (syncWs.readyState === WebSocket.OPEN) {
-				syncWs.close(1001, "Client shutting down");
-			}
-			syncWs = null;
-		}
-
-		// Notify all clients that server is closing
-		const closeMsg = JSON.stringify({ type: "serverclosing", reason: signal });
-		for (const ws of clients) {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(closeMsg);
-				ws.close(1001, "Server shutting down");
-			}
-		}
-		clients.clear();
-
-		// Stop the WebSocket server
-		if (wss) {
-			wss.stop();
-			wss = null;
-		}
-
-		// Stop intervals
-		if (heartbeatInterval) {
-			clearInterval(heartbeatInterval);
-			heartbeatInterval = null;
-		}
-		if (idleCleanupInterval) {
-			clearInterval(idleCleanupInterval);
-			idleCleanupInterval = null;
-		}
-
-		log("info", "Cleanup complete");
-	}
-
-	// Handle process exit signals
-	process.on("SIGINT", () => cleanup("SIGINT"));
-	process.on("SIGTERM", () => cleanup("SIGTERM"));
+	console.log("[blob-office] Plugin initialization COMPLETE, returning hooks");
 
 	// ── Hooks ─────────────────────────────────────────────────────────────────
 

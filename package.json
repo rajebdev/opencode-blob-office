@@ -1,14 +1,32 @@
 {
-  "name": "blob-office-plugin",
-  "version": "1.3.0",
-  "description": "Blob Office - OpenCode visualization plugin",
+  "name": "blob-office",
+  "version": "2.0.0",
+  "description": "Visualize OpenCode sessions as animated blob characters",
   "type": "module",
+  "bin": {
+    "blob-office": "./bin/blob-office.js"
+  },
+  "files": [
+    "bin/blob-office.js",
+    "blob-office.ts",
+    "blob-office.html"
+  ],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "visualization",
+    "agent",
+    "ai"
+  ],
   "scripts": {
     "test": "bun tests/run-tests.ts",
     "test:unit": "bun tests/run-tests.ts --unit",
     "test:integration": "bun tests/run-tests.ts --integration",
     "test:e2e": "bun tests/run-tests.ts --e2e",
     "test:watch": "bun tests/run-tests.ts --watch"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
   },
   "devDependencies": {
     "@types/ws": "^8.5.10",

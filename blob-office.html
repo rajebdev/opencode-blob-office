@@ -65,14 +65,16 @@
   <div class="dot" id="ws-dot"></div>
   <span id="ws-label">connecting…</span>
   <span style="margin-left:auto" class="count" id="agent-count"></span>
-  <span>ws://localhost:2727/ws</span>
+  <span id="ws-url">connecting...</span>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
 <script>
 // ─── WebSocket Client ─────────────────────────────────────────────────────────
 
-const WS_URL = "ws://localhost:2727/ws";
+const BASE_PORT = 2727;
+const MAX_PORT_ATTEMPTS = 10;
+let currentPort = BASE_PORT;
 let agents = {};      // id → AgentState
 let ws = null;
 let connected = false;
@@ -82,28 +84,40 @@ const SNAPSHOT_DEBOUNCE_MS = 50;  // Min time between processing snapshots
 
 const wsDot   = document.getElementById("ws-dot");
 const wsLabel = document.getElementById("ws-label");
+const wsUrlEl = document.getElementById("ws-url");
 const agentCountEl = document.getElementById("agent-count");
 const noAgents = document.getElementById("no-agents");
 
-function connectWS() {
-  ws = new WebSocket(WS_URL);
+function connectWS(port = BASE_PORT) {
+  const wsUrl = `ws://localhost:${port}/ws`;
+  ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     connected = true;
+    currentPort = port;
     wsDot.className = "dot connected";
-    wsLabel.textContent = "connected";
+    wsLabel.textContent = `connected :${port}`;
+    wsUrlEl.textContent = wsUrl;
   };
 
   ws.onclose = () => {
     connected = false;
     wsDot.className = "dot";
     wsLabel.textContent = "reconnecting…";
-    setTimeout(connectWS, 2000);
+    wsUrlEl.textContent = "connecting...";
+    setTimeout(() => connectWS(BASE_PORT), 2000);
   };
 
   ws.onerror = () => {
-    // Don't call ws.close() here - let the browser handle it naturally
-    // Prevents triggering reconnection loop during transient errors
+    if (port < BASE_PORT + MAX_PORT_ATTEMPTS - 1) {
+      wsLabel.textContent = `trying :${port + 1}...`;
+      wsUrlEl.textContent = `trying ws://localhost:${port + 1}/ws...`;
+      setTimeout(() => connectWS(port + 1), 300);
+    } else {
+      wsLabel.textContent = "reconnecting...";
+      wsUrlEl.textContent = "reconnecting...";
+      setTimeout(() => connectWS(BASE_PORT), 3000);
+    }
   };
 
   ws.onmessage = (ev) => {
