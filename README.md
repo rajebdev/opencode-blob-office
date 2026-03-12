@@ -12,13 +12,21 @@ Session Character Visualizer creates a blob character visualization of your codi
 
 ---
 
-## Installation (One-Liner)
+## Installation
+
+### One-Liner (Recommended)
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Caffa/Session-Character-Visualizer/main/install.sh)"
+bunx blob-office install
 ```
 
-Or manually:
+Or with npx:
+
+```bash
+npx blob-office install
+```
+
+### Manual
 
 ```bash
 git clone https://github.com/Caffa/Session-Character-Visualizer.git
@@ -33,8 +41,8 @@ Restart OpenCode. The viewer opens automatically in your browser.
 ## Quick Start
 
 ```bash
-# Install with one-liner
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Caffa/Session-Character-Visualizer/main/install.sh)"
+# Install
+bunx blob-office install
 
 # Restart OpenCode
 opencode --restart
@@ -67,7 +75,7 @@ open ~/.config/opencode/plugins/blob-office.html
 blob-office.ts (OpenCode plugin)
   ├─ Session events: created, deleted, status changes
   ├─ Tool executions: read, edit, bash, webfetch
-  └─ WebSocket server: ws://localhost:2727
+  └─ WebSocket server: ws://localhost:2727-2736 (auto-discovery)
        └─ blob-office.html (p5.js renderer)
             ├─ Radial agent positioning
             └─ Status-based animations
@@ -75,19 +83,21 @@ blob-office.ts (OpenCode plugin)
 
 ### Technical
 
-- WebSocket on port 2727
+- WebSocket on port 2727-2736 (auto-discovery)
 - Event-driven updates from OpenCode hooks
 - p5.js canvas rendering
 - No bundling required
+- Toast notification on startup shows WebSocket URL
 
 ---
 
 ## Configuration
 
-Change WebSocket port in:
+### Port Discovery
 
-1. `blob-office.ts`: `PORT = 2727`
-2. `blob-office.html`: `WS_URL`
+The plugin automatically finds an available port starting from 2727. If port 2727 is in use, it tries 2728, 2729, etc. (up to 2736).
+
+Both the server (plugin) and client (viewer) support automatic port discovery.
 
 ---
 
@@ -114,7 +124,7 @@ cd media-previews
 
 **Viewer doesn't open**: Open `~/.config/opencode/plugins/blob-office.html` manually
 
-**Port 2727 in use**: Change port in `blob-office.ts` and `blob-office.html`
+**Port conflicts**: The plugin automatically finds an available port (2727-2736). Check the toast notification for the actual port in use.
 
 **No agents appearing**:
 
