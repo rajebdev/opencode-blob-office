@@ -19,6 +19,7 @@
     "ai"
   ],
   "scripts": {
+    "plugin-installer": "bash install.sh",
     "test": "bun tests/run-tests.ts",
     "test:unit": "bun tests/run-tests.ts --unit",
     "test:integration": "bun tests/run-tests.ts --integration",
