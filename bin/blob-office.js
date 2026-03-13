@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { cp, mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile, stat, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -14,10 +14,11 @@ const HELP = `
 Blob Office — OpenCode Visualization Plugin
 
 Usage:
-  blob-office install    Install the plugin to OpenCode
+  blob-office install      Install the plugin to OpenCode
+  blob-office uninstall    Remove the plugin from OpenCode
 
 Options:
-  -h, --help             Show this help message
+  -h, --help               Show this help message
 
 After installation:
   1. Restart OpenCode
@@ -73,6 +74,50 @@ async function install() {
 	console.log(`   Restart OpenCode to activate the plugin.\n`);
 }
 
+async function uninstall() {
+	console.log("🗑️  Uninstalling Blob Office plugin...\n");
+
+	const files = [
+		join(PLUGIN_DIR, "blob-office.ts"),
+		join(PLUGIN_DIR, "blob-office.html"),
+	];
+
+	let removedAny = false;
+
+	for (const file of files) {
+		if (existsSync(file)) {
+			await rm(file);
+			console.log(`✓ Removed ${file}`);
+			removedAny = true;
+		}
+	}
+
+	// Remove plugin registration from opencode.json
+	if (existsSync(OPENCODE_CONFIG)) {
+		try {
+			const raw = await readFile(OPENCODE_CONFIG, "utf-8");
+			const config = JSON.parse(raw);
+			if (Array.isArray(config.plugin)) {
+				const idx = config.plugin.indexOf("blob-office");
+				if (idx !== -1) {
+					config.plugin.splice(idx, 1);
+					await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
+					console.log(`✓ Deregistered plugin from opencode.json`);
+				}
+			}
+		} catch {
+			// Ignore parse errors
+		}
+	}
+
+	if (!removedAny) {
+		console.log("ℹ️  No Blob Office files found to remove.\n");
+	} else {
+		console.log(`\n✅ Blob Office uninstalled successfully!\n`);
+	}
+	console.log(`   Restart OpenCode to complete removal.\n`);
+}
+
 async function main() {
 	const { values, positionals } = parseArgs({
 		options: {
@@ -90,6 +135,8 @@ async function main() {
 
 	if (command === "install") {
 		await install();
+	} else if (command === "uninstall") {
+		await uninstall();
 	} else if (!command) {
 		console.log(HELP);
 		process.exit(0);
