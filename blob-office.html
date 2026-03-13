@@ -82,6 +82,12 @@ let lastSnapshotTime = 0;
 let snapshotDebounceTimer = null;
 const SNAPSHOT_DEBOUNCE_MS = 50;  // Min time between processing snapshots
 
+// Exponential backoff for reconnection
+let reconnectAttempts = 0;
+let serverClosed = false;  // True if server sent graceful shutdown
+const INITIAL_DELAY = 1000;
+const MAX_DELAY = 30000;
+
 const wsDot   = document.getElementById("ws-dot");
 const wsLabel = document.getElementById("ws-label");
 const wsUrlEl = document.getElementById("ws-url");
@@ -95,17 +101,35 @@ function connectWS(port = BASE_PORT) {
   ws.onopen = () => {
     connected = true;
     currentPort = port;
+    reconnectAttempts = 0;  // Reset backoff on successful connection
+    serverClosed = false;    // Reset shutdown flag
     wsDot.className = "dot connected";
     wsLabel.textContent = `connected :${port}`;
     wsUrlEl.textContent = wsUrl;
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     connected = false;
     wsDot.className = "dot";
-    wsLabel.textContent = "reconnecting…";
-    wsUrlEl.textContent = "connecting...";
-    setTimeout(() => connectWS(BASE_PORT), 2000);
+    // Clear agents so blobs disappear when connection is lost
+    agents = {};
+    agentCountEl.textContent = "";
+    noAgents.classList.remove("hidden");
+
+    // Calculate delay with exponential backoff
+    const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
+    reconnectAttempts++;
+
+    if (serverClosed) {
+      // Server shut down gracefully - use longer backoff
+      wsLabel.textContent = "server closed";
+      wsUrlEl.textContent = `reconnecting in ${Math.round(delay / 1000)}s...`;
+    } else {
+      wsLabel.textContent = "reconnecting…";
+      wsUrlEl.textContent = "disconnected";
+    }
+
+    setTimeout(() => connectWS(BASE_PORT), delay);
   };
 
   ws.onerror = () => {
@@ -114,9 +138,12 @@ function connectWS(port = BASE_PORT) {
       wsUrlEl.textContent = `trying ws://localhost:${port + 1}/ws...`;
       setTimeout(() => connectWS(port + 1), 300);
     } else {
+      // All ports failed - use exponential backoff
+      const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
+      reconnectAttempts++;
       wsLabel.textContent = "reconnecting...";
-      wsUrlEl.textContent = "reconnecting...";
-      setTimeout(() => connectWS(BASE_PORT), 3000);
+      wsUrlEl.textContent = `retry in ${Math.round(delay / 1000)}s`;
+      setTimeout(() => connectWS(BASE_PORT), delay);
     }
   };
 
@@ -137,7 +164,8 @@ function connectWS(port = BASE_PORT) {
         lastSnapshotTime = now;
         processSnapshot(msg.agents);
       } else if (msg.type === "serverclosing") {
-        // Server is shutting down - prevent reconnect attempts
+        // Server is shutting down gracefully - use longer backoff for reconnect
+        serverClosed = true;
         connected = false;
         wsDot.className = "dot";
         wsLabel.textContent = "server closed";
@@ -212,15 +240,18 @@ const FLOOR_COLOR   = [15, 15, 25];
 const GRID_COLOR    = [22, 22, 38];
 const GRID_SIZE     = 48;
 
+// Zoom scale factor (1.3 = 30% larger)
+const ZOOM = 1.3;
+
 // Status → animation config
 const STATUS_CFG = {
-  idle:     { pulse: 0.4, radius: 22, opacity: 160, label: "💤", ring: false },
-  thinking: { pulse: 1.8, radius: 26, opacity: 230, label: "🧠", ring: true  },
-  editing:  { pulse: 1.2, radius: 24, opacity: 255, label: "✏️", ring: true  }, // Reduced pulse & radius
-  reading:  { pulse: 1.2, radius: 25, opacity: 210, label: "📖", ring: true  },
-  running:  { pulse: 3.0, radius: 27, opacity: 245, label: "💻", ring: true  },
-  waiting:  { pulse: 0.8, radius: 24, opacity: 200, label: "⚠️", ring: true  },
-  error:    { pulse: 1.5, radius: 24, opacity: 255, label: "❌", ring: true  },
+  idle:     { pulse: 0.4, radius: 28, opacity: 160, label: "💤", ring: false },
+  thinking: { pulse: 1.8, radius: 34, opacity: 230, label: "🧠", ring: true  },
+  editing:  { pulse: 1.2, radius: 31, opacity: 255, label: "✏️", ring: true  },
+  reading:  { pulse: 1.2, radius: 32, opacity: 210, label: "📖", ring: true  },
+  running:  { pulse: 3.0, radius: 35, opacity: 245, label: "💻", ring: true  },
+  waiting:  { pulse: 0.8, radius: 31, opacity: 200, label: "⚠️", ring: true  },
+  error:    { pulse: 1.5, radius: 31, opacity: 255, label: "❌", ring: true  },
 };
 
 // ── Radial positioning ─────────────────────────────────────────────────────
@@ -236,13 +267,13 @@ function easeInOutCubic(t) {
 
 function calculateRadialPos(agentIndex, totalAgents, W, H) {
   // Center of canvas (accounting for status bar)
-  const centerX = W / 2;
+  const centerX = W/ 2;
   const centerY = (H - 30) / 2;
 
-  // Base radius - closer to center with fewer agents
-  const minRadius = 80;
-  const radiusPerAgent = 45;
-  const maxRadius = Math.min(W, H - 30) / 2 - 60;
+  // Base radius - closer to center with fewer agents (scaled by zoom)
+  const minRadius = 60 * ZOOM;
+  const radiusPerAgent = 58 * ZOOM;
+  const maxRadius = Math.min(W, H - 30) / 2 - 50;
   const radius = Math.min(minRadius + (totalAgents * radiusPerAgent), maxRadius);
 
   // Even angular distribution
@@ -327,13 +358,13 @@ class Sprite {
 
     // Current visual values (interpolated each frame toward target)
     this.currentPulse = 0.4;
-    this.currentRadius = 22;
+    this.currentRadius =22 * ZOOM;
     this.currentAlpha = 160;
     this.currentBobSpeed = 0.8;
 
     // Target values (from STATUS_CFG)
     this.targetPulse = 0.4;
-    this.targetRadius = 22;
+    this.targetRadius = 22 * ZOOM;
     this.targetAlpha = 160;
     this.targetBobSpeed = 0.8;
 
@@ -344,7 +375,9 @@ class Sprite {
 
     // Subagents orbit around parent
     this.orbitAngle = Math.random() * Math.PI * 2;
-    this.orbitRadius = 50 + Math.random() * 30;
+    this.orbitRadius = 65 * ZOOM;  // Default orbit radius (scaled)
+    this.targetOrbitRadius = 65 * ZOOM;  // Target radius (closer when idle, farther when active)
+    this.currentOrbitRadius = 65 * ZOOM;  // Smooth interpolated radius
     this.orbitSpeed = 0.3 + Math.random() * 0.3;
 
     // Fiddling animations
@@ -1144,10 +1177,29 @@ new p5((p) => {
           if (fadeAlpha < 0) fadeAlpha = 0;
         }
 
+        // Dynamic orbit radius based on status
+        // Active subagents orbit farther out, idle ones drift closer to parent
+        const isActiveStatus = ["thinking", "editing", "reading", "running", "waiting"].includes(subagent.status);
+        const parentIsReading = parent.status === "reading";
+        
+        // Target orbit radius: closer when idle or when parent is reading from them
+        const closeRadius = 45 * ZOOM;   // Close orbit (idle/parent reading)
+        const farRadius = 90 * ZOOM;    // Far orbit (active)
+        
+        if (isIdle || parentIsReading) {
+          sprite.targetOrbitRadius = closeRadius;
+        } else if (isActiveStatus) {
+          sprite.targetOrbitRadius = farRadius;
+        }
+        
+        // Smooth interpolation toward target orbit radius
+        sprite.currentOrbitRadius += (sprite.targetOrbitRadius - sprite.currentOrbitRadius) * 0.03;
+        sprite.orbitRadius = sprite.currentOrbitRadius;
+
         // Update orbit position around parent
         sprite.orbitAngle += sprite.orbitSpeed * 0.5 * (1/60);  // Consistent speed
         const orbitOffsetX = Math.cos(sprite.orbitAngle) * sprite.orbitRadius;
-        const orbitOffsetY = Math.sin(sprite.orbitAngle * 0.7) * sprite.orbitRadius * 0.4 + 15;
+        const orbitOffsetY = Math.sin(sprite.orbitAngle * 0.7) * sprite.orbitRadius * 0.4 + sprite.orbitRadius * 0.15;
 
         // Use interpolated visual values for smooth transitions
         const pulse = Math.sin(now * sprite.currentPulse + sprite.phase);

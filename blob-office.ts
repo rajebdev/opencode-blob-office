@@ -393,6 +393,21 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		console.log("[blob-office] Server instance - setting up heartbeat and cleanup...");
 		startHeartbeat();
 		startIdleCleanup();
+
+		// Graceful shutdown - notify clients before server closes
+		const broadcastShutdown = () => {
+			const closingMsg = JSON.stringify({ type: "serverclosing", reason: "opencode_exit" });
+			for (const ws of clients) {
+				try {
+					if (ws.readyState === WebSocket.OPEN) {
+						ws.send(closingMsg);
+					}
+				} catch {}
+			}
+		};
+
+		process.on("beforeExit", broadcastShutdown);
+
 		const wsUrl = `ws://localhost:${actualPort}/ws`;
 		const viewerUrl = `file://${process.env.HOME}/.config/opencode/plugins/blob-office.html`;
 		log("info", `WebSocket server running on ${wsUrl}`);
