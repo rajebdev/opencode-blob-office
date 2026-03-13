@@ -9,7 +9,8 @@
   "files": [
     "bin/blob-office.js",
     "blob-office.ts",
-    "blob-office.html"
+    "blob-office.html",
+    "README.md"
   ],
   "keywords": [
     "opencode",
@@ -18,6 +19,12 @@
     "agent",
     "ai"
   ],
+  "author": "cbrunnkvist",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cbrunnkvist/Session-Character-Visualizer.git"
+  },
   "scripts": {
     "plugin-installer": "bash install.sh",
     "test": "bun tests/run-tests.ts",
