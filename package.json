@@ -4,7 +4,7 @@
   "description": "Visualize OpenCode sessions as animated blob characters",
   "type": "module",
   "bin": {
-    "blob-office": "./bin/blob-office.js"
+    "blob-office": "bin/blob-office.js"
   },
   "files": [
     "bin/blob-office.js",
