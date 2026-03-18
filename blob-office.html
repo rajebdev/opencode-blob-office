@@ -72,7 +72,10 @@
 <script>
 // ─── WebSocket Client ─────────────────────────────────────────────────────────
 
-const BASE_PORT = 2727;
+// Support both injected port (from HTTP server) and fallback (file:// mode)
+// Priority: 1. window.BLOB_OFFICE_WS_PORT (injected), 2. window.BASE_PORT (legacy), 3. default
+const INJECTED_PORT = typeof window !== 'undefined' ? window.BLOB_OFFICE_WS_PORT : null;
+const BASE_PORT = INJECTED_PORT || (typeof window !== 'undefined' ? window.BASE_PORT : null) || 2727;
 const MAX_PORT_ATTEMPTS = 10;
 let currentPort = BASE_PORT;
 let agents = {};      // id → AgentState
