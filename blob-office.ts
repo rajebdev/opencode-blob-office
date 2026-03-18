@@ -15,28 +15,28 @@ import type { Plugin } from "@opencode-ai/plugin";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type AgentStatus =
-	| "idle"
-	| "thinking"
-	| "editing"
-	| "reading"
-	| "running"
-	| "waiting"
-	| "error";
+export type AgentStatus =
+  | "idle"
+  | "thinking"
+  | "editing"
+  | "reading"
+  | "running"
+  | "waiting"
+  | "error";
 
-interface AgentState {
-	id: string;
-	parentID: string | null; // ID of parent agent if this is a subagent
-	folder: string; // basename of project directory
-	folderFull: string; // full path
-	title: string | null; // session title
-	status: AgentStatus;
-	tool: string | null; // current tool being executed
-	message: string | null; // last speech bubble text
-	since: number; // timestamp of last status change (ms)
-	color: number; // hue 0–360, derived from session id
-	idleSince: number | null; // timestamp when subagent went idle (for cleanup)
-	activityScale: number; // 1.0 = normal, up to 2.5 (based on files modified)
+export interface AgentState {
+  id: string;
+  parentID: string | null; // ID of parent agent if this is a subagent
+  folder: string; // basename of project directory
+  folderFull: string; // full path
+  title: string | null; // session title
+  status: AgentStatus;
+  tool: string | null; // current tool being executed
+  message: string | null; // last speech bubble text
+  since: number; // timestamp of last status change (ms)
+  color: number; // hue 0–360, derived from session id
+  idleSince: number | null; // timestamp when subagent went idle (for cleanup)
+  activityScale: number; // 1.0 = normal, up to 2.5 (based on files modified)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,9 +143,12 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	// Clear any stale activity data from previous sessions
 	agentFileActivity.clear();
 
-	const BASE_PORT = 2727;
-	const MAX_PORT_ATTEMPTS = 10;
-	let actualPort = BASE_PORT;
+	const WS_BASE_PORT = 2727;
+	const WS_MAX_PORT_ATTEMPTS = 10;
+	const HTTP_BASE_PORT = 2626;
+	const HTTP_MAX_PORT_ATTEMPTS = 10;
+	let wsPort = WS_BASE_PORT;
+	let httpPort = HTTP_BASE_PORT;
 	const agents = new Map<string, AgentState>();
 	const clients = new Set<globalThis.WebSocket>();
 
@@ -227,31 +230,63 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 	let browserOpened = false;
 	let serverWasAlreadyRunning = false;
+	let cachedHtml: string | null = null;
 
-	async function openViewer() {
+	async function getHtmlWithWsPort(injectedWsPort: number): Promise<string> {
+		if (cachedHtml) {
+			return cachedHtml.replace(
+				"window.BLOB_OFFICE_WS_PORT",
+				String(injectedWsPort),
+			);
+		}
+
+		// Find and read the HTML file
+		const htmlPaths = [
+			`${process.env.HOME}/.config/opencode/plugins/blob-office.html`,
+			`${process.cwd()}/blob-office.html`,
+			`${process.env.HOME}/blob-office/index.html`,
+		];
+
+		for (const htmlPath of htmlPaths) {
+			try {
+				const file = Bun.file(htmlPath);
+				if (await file.exists()) {
+					let html = await file.text();
+					// Inject WS port before the first script tag
+					const injection = `<script>window.BLOB_OFFICE_WS_PORT = ${injectedWsPort};</script>`;
+					html = html.replace("<script>", injection + "\n<script>");
+					cachedHtml = html;
+					return html;
+				}
+			} catch {
+				// Try next path
+			}
+		}
+
+		throw new Error("Could not find blob-office.html");
+	}
+
+	async function openViewer(wsPortToUse: number) {
 		// Don't open browser if server was already running (from previous OpenCode session)
 		if (browserOpened || serverWasAlreadyRunning) return;
 		browserOpened = true;
-		// Find the viewer — look next to the plugin file, then home
-		const candidates = [
-			`${process.env.HOME}/.config/opencode/plugins/blob-office.html`,
-			`${process.env.HOME}/blob-office/index.html`,
-		];
-		const viewer = candidates[0]; // default install location
+
+		// Get the HTTP URL to open (after HTTP server is started)
+		const httpUrl = `http://localhost:${httpPort}/`;
 
 		const platform = process.platform;
 		const cmd =
 			platform === "darwin"
-				? ["open", viewer]
+				? ["open", httpUrl]
 				: platform === "win32"
-					? ["cmd", "/c", "start", "", viewer]
-					: ["xdg-open", viewer];
+					? ["cmd", "/c", "start", "", httpUrl]
+					: ["xdg-open", httpUrl];
 
 		try {
 			// Don't await - opening browser should never block the plugin
 			Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
 		} catch {
-			log("info", `Open viewer manually: ${viewer}`);
+			log("info", `Open viewer manually: http://localhost:${httpPort}/`);
 		}
 	}
 
@@ -317,20 +352,54 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	console.log("[blob-office] Starting WebSocket server setup...");
 	diag("Starting WebSocket server setup...");
 	
-	for (let portAttempt = 0; portAttempt < MAX_PORT_ATTEMPTS; portAttempt++) {
-		const tryPort = BASE_PORT + portAttempt;
-		console.log(`[blob-office] Attempting port ${tryPort}...`);
-			diag(`Attempting port ${tryPort}...`);
+	// Find available HTTP port first (for serving HTML)
+	for (let httpAttempt = 0; httpAttempt < HTTP_MAX_PORT_ATTEMPTS; httpAttempt++) {
+		const tryHttpPort = HTTP_BASE_PORT + httpAttempt;
+		try {
+			const testServer = Bun.serve({
+				port: tryHttpPort,
+				fetch: () => new Response("test"),
+			});
+			testServer.stop();
+			httpPort = tryHttpPort;
+			console.log(`[blob-office] Found available HTTP port ${httpPort}`);
+			break;
+		} catch {
+			console.log(`[blob-office] HTTP port ${tryHttpPort} in use, trying next...`);
+			continue;
+		}
+	}
+
+	// Now find available WS port
+	for (let portAttempt = 0; portAttempt < WS_MAX_PORT_ATTEMPTS; portAttempt++) {
+		const tryPort = WS_BASE_PORT + portAttempt;
+		console.log(`[blob-office] Attempting WS port ${tryPort}...`);
+			diag(`Attempting WS port ${tryPort}...`);
 		try {
 			wss = Bun.serve({
 				port: tryPort,
-				fetch(req, server) {
+				fetch: async (req, server) => {
 					const url = new URL(req.url);
-					if (url.pathname === "/ws" || url.pathname === "/") {
+					
+					// Serve HTML with injected WS port (at root path)
+					if (url.pathname === "" || url.pathname === "/" || url.pathname === "/index.html") {
+						try {
+							const html = await getHtmlWithWsPort(tryPort);
+							return new Response(html, {
+								headers: { "Content-Type": "text/html" },
+							});
+						} catch (e) {
+							return new Response("HTML not found: " + (e as Error).message, { status: 500 });
+						}
+					}
+					
+					// WebSocket upgrade
+					if (url.pathname === "/ws") {
 						const success = server.upgrade(req, { data: {} });
 						if (success) return undefined;
 						return new Response("WebSocket upgrade failed", { status: 400 });
 					}
+					
 					return new Response("Not Found", { status: 404 });
 				},
 				websocket: {
@@ -375,7 +444,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					},
 				},
 			});
-			actualPort = tryPort;
+			wsPort = tryPort;
 			isServerInstance = true;
 			console.log(`[blob-office] Server started successfully on port ${tryPort}`);
 			break;
@@ -408,16 +477,17 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 		process.on("beforeExit", broadcastShutdown);
 
-		const wsUrl = `ws://localhost:${actualPort}/ws`;
-		const viewerUrl = `file://${process.env.HOME}/.config/opencode/plugins/blob-office.html`;
-		log("info", `WebSocket server running on ${wsUrl}`);
+		const wsUrl = `ws://localhost:${wsPort}/ws`;
+		const httpUrl = `http://localhost:${httpPort}/`;
+		const viewerUrl = httpUrl;
+		log("info", `WebSocket server running on ${wsUrl}, HTTP viewer at ${httpUrl}`);
 		console.log("[blob-office] About to call showToast...");
 		
 		// Make showToast truly non-blocking with a timeout
 		const toastPromise = client?.tui?.showToast?.({
 			body: {
 				title: "Blob Office",
-				message: `WebSocket: ${wsUrl}`,
+				message: `WS: ${wsPort}, HTTP: ${httpPort}`,
 				variant: "info",
 				duration: 8000,
 			},
@@ -443,7 +513,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		console.log("[blob-office] No server - connecting as client...");
 		log("warn", "No available port found, connecting to existing server as client");
 		serverWasAlreadyRunning = true;
-		const wsUrl = `ws://localhost:${BASE_PORT}`;
+		const wsUrl = `ws://localhost:${WS_BASE_PORT}`;
 		syncWs = new WebSocket(wsUrl);
 
 			syncWs.onopen = () => {
@@ -578,7 +648,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 					log("info", `Agent added, total agents: ${agents.size}`);
 					broadcast();
-					openViewer();
+					openViewer(wsPort);
 					break;
 				}
 
@@ -665,7 +735,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 						}
 					}
 					broadcast();
-					openViewer();
+					openViewer(wsPort);
 					break;
 				}
 
