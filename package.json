@@ -27,16 +27,22 @@
   },
   "scripts": {
     "plugin-installer": "bash install.sh",
+    "mock-server": "bun run blob-office-mock-server.ts 2727",
     "test": "bun tests/run-tests.ts",
     "test:unit": "bun tests/run-tests.ts --unit",
     "test:integration": "bun tests/run-tests.ts --integration",
     "test:e2e": "bun tests/run-tests.ts --e2e",
+    "test:visual": "playwright test",
+    "test:visual:ui": "playwright test --ui",
+    "test:visual:headed": "playwright test --headed",
+    "test:states": "playwright test tests/e2e/state-capture.spec.ts",
     "test:watch": "bun tests/run-tests.ts --watch"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "@types/ws": "^8.5.10",
     "typescript": "^5.3.0"
   },
