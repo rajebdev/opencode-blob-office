@@ -199,3 +199,21 @@ afterEach(() => {
 - `p5.js` — Loaded from CDN in HTML viewer
 
 Keep dependencies minimal — no bundler, no framework.
+
+## Releasing
+
+**Always use `npm version` to bump and tag — never `git tag` manually.**
+
+```bash
+npm version patch   # 2.0.0 → 2.0.1
+npm version minor   # 2.0.0 → 2.1.0
+npm version major   # 2.0.0 → 3.0.0
+```
+
+`npm version` updates `package.json`, creates a git commit, and tags it `v<version>` in one atomic step — no version string typos. Then push the tag:
+
+```bash
+git push && git push --tags
+```
+
+GitHub Actions (`.github/workflows/publish.yml`) picks up the `v*` tag, runs the full test suite, and publishes to npm with OIDC provenance. No npm tokens needed — uses Trusted Publishers.

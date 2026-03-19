@@ -114,6 +114,17 @@ bun run mock-server
 
 ---
 
+## Releasing
+
+```bash
+npm version patch   # or minor, major
+git push && git push --tags
+```
+
+`npm version` bumps `package.json`, commits, and tags atomically. The tag push triggers CI which runs tests and publishes to npm with provenance. Never use `git tag` manually.
+
+---
+
 ## License
 
 MIT — see upstream repository for original license terms.
