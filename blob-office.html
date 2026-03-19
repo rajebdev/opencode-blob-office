@@ -72,12 +72,8 @@
 <script>
 // ─── WebSocket Client ─────────────────────────────────────────────────────────
 
-// Support both injected port (from HTTP server) and fallback (file:// mode)
-// Priority: 1. window.BLOB_OFFICE_WS_PORT (injected), 2. window.BASE_PORT (legacy), 3. default
-const INJECTED_PORT = typeof window !== 'undefined' ? window.BLOB_OFFICE_WS_PORT : null;
-const BASE_PORT = INJECTED_PORT || (typeof window !== 'undefined' ? window.BASE_PORT : null) || 2727;
-const MAX_PORT_ATTEMPTS = 10;
-let currentPort = BASE_PORT;
+// WS port is injected by the HTTP server at serve-time
+const BASE_PORT = (typeof window !== 'undefined' && window.BLOB_OFFICE_WS_PORT) || 2727;
 let agents = {};      // id → AgentState
 let ws = null;
 let connected = false;
@@ -88,6 +84,7 @@ const SNAPSHOT_DEBOUNCE_MS = 50;  // Min time between processing snapshots
 // Exponential backoff for reconnection
 let reconnectAttempts = 0;
 let serverClosed = false;  // True if server sent graceful shutdown
+let reconnectTimer = null; // Single reconnect timer — prevents concurrent scheduling
 const INITIAL_DELAY = 1000;
 const MAX_DELAY = 30000;
 
@@ -97,57 +94,74 @@ const wsUrlEl = document.getElementById("ws-url");
 const agentCountEl = document.getElementById("agent-count");
 const noAgents = document.getElementById("no-agents");
 
-function connectWS(port = BASE_PORT) {
-  const wsUrl = `ws://localhost:${port}/ws`;
+function scheduleReconnect(delay) {
+  if (reconnectTimer) return; // Already scheduled — don't pile up
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectWS();
+  }, delay);
+}
+
+function connectWS() {
+  const wsUrl = `ws://localhost:${BASE_PORT}/ws`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     connected = true;
-    currentPort = port;
-    reconnectAttempts = 0;  // Reset backoff on successful connection
-    serverClosed = false;    // Reset shutdown flag
+    reconnectAttempts = 0;
+    serverClosed = false;
     wsDot.className = "dot connected";
-    wsLabel.textContent = `connected :${port}`;
+    wsLabel.textContent = `connected :${BASE_PORT}`;
     wsUrlEl.textContent = wsUrl;
+
+    // Clear any stale fading-out agents from a previous disconnect
+    // The next snapshot from the server will repopulate fresh state
+    for (const id in agents) {
+      if (agents[id]._fadeOutStart) {
+        removeAgentPosition(id);
+        delete agents[id];
+      }
+    }
   };
 
   ws.onclose = (event) => {
     connected = false;
     wsDot.className = "dot";
-    // Clear agents so blobs disappear when connection is lost
-    agents = {};
-    agentCountEl.textContent = "";
-    noAgents.classList.remove("hidden");
-
-    // Calculate delay with exponential backoff
-    const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
-    reconnectAttempts++;
 
     if (serverClosed) {
-      // Server shut down gracefully - use longer backoff
+      // Graceful shutdown — blobs are already fading out, don't wipe them
+      // Don't reconnect; the page will close after fade completes
       wsLabel.textContent = "server closed";
-      wsUrlEl.textContent = `reconnecting in ${Math.round(delay / 1000)}s...`;
-    } else {
-      wsLabel.textContent = "reconnecting…";
-      wsUrlEl.textContent = "disconnected";
+      wsUrlEl.textContent = "closing…";
+      return;
     }
 
-    setTimeout(() => connectWS(BASE_PORT), delay);
+    // Unexpected disconnect — fade out all blobs, then reconnect
+    const now = Date.now();
+    const hadAgents = Object.keys(agents).length > 0;
+    for (const id in agents) {
+      if (!agents[id]._fadeOutStart) {
+        agents[id]._fadeOutStart = now;
+      }
+    }
+
+    wsLabel.textContent = "disconnected";
+
+    if (reconnectAttempts === 0 && hadAgents) {
+      // First disconnect — give blobs time to fade out, then try reconnecting
+      wsUrlEl.textContent = "reconnecting soon…";
+      scheduleReconnect(2000);
+    } else {
+      // Subsequent failed reconnect attempts — exponential backoff
+      const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
+      wsUrlEl.textContent = `retry in ${Math.round(delay / 1000)}s`;
+      scheduleReconnect(delay);
+    }
+    reconnectAttempts++;
   };
 
   ws.onerror = () => {
-    if (port < BASE_PORT + MAX_PORT_ATTEMPTS - 1) {
-      wsLabel.textContent = `trying :${port + 1}...`;
-      wsUrlEl.textContent = `trying ws://localhost:${port + 1}/ws...`;
-      setTimeout(() => connectWS(port + 1), 300);
-    } else {
-      // All ports failed - use exponential backoff
-      const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
-      reconnectAttempts++;
-      wsLabel.textContent = "reconnecting...";
-      wsUrlEl.textContent = `retry in ${Math.round(delay / 1000)}s`;
-      setTimeout(() => connectWS(BASE_PORT), delay);
-    }
+    // onerror is always followed by onclose — let onclose handle reconnect
   };
 
   ws.onmessage = (ev) => {
@@ -167,11 +181,29 @@ function connectWS(port = BASE_PORT) {
         lastSnapshotTime = now;
         processSnapshot(msg.agents);
       } else if (msg.type === "serverclosing") {
-        // Server is shutting down gracefully - use longer backoff for reconnect
+        // Server is shutting down gracefully — fizzle all blobs then close the page
         serverClosed = true;
         connected = false;
         wsDot.className = "dot";
         wsLabel.textContent = "server closed";
+
+        // Start fade-out on all remaining agents
+        const now = Date.now();
+        for (const id in agents) {
+          if (!agents[id]._fadeOutStart) {
+            agents[id]._fadeOutStart = now;
+          }
+        }
+
+        // After fade completes, close the tab (if we're the only viewer)
+        setTimeout(() => {
+          // Only close if no agents remain (i.e. nobody reconnected)
+          const remaining = Object.values(agents).filter(a => !a._fadeOutStart);
+          if (remaining.length === 0) {
+            window.close();
+          }
+        }, 1500);
+
         if (ws) ws.close();
       }
     } catch { /* ignore */ }
@@ -395,6 +427,11 @@ class Sprite {
     // Expression (for error state)
     this.expression = "normal";
 
+    // Idle eye expression system
+    this.idleEyeState = "closed";  // closed, halfLid, peek, glance
+    this.idleEyeTimer = 2 + Math.random() * 3;
+    this.idleGlanceDir = 0;  // -1 left, 0 center, 1 right
+
     // Code panel animation state
     this.editPanelPhase = "idle";  // idle, slideOut, expand, showCode, pixelate, closing
     this.editPanelStartTime = 0;
@@ -491,16 +528,24 @@ const ONE_DARK = {
   operator: [212, 218, 226], // #d8dee9
 };
 
-// Code snippets to display (file names being edited)
-const CODE_SNIPPETS = [
-  { text: 'src/index.ts' },
-  { text: 'utils/helpers.ts' },
-  { text: 'components/App.tsx' },
-  { text: 'api/routes.ts' },
-  { text: 'config.ts' },
-  { text: 'styles.css' },
-  { text: 'types.ts' },
-  { text: 'README.md' },
+// Fallback code snippets — programmer humor / infamous filenames
+const FALLBACK_SNIPPETS = [
+  'index.html',
+  'GORILLA.BAS',
+  'AUTOEXEC.BAT',
+  'CONFIG.SYS',
+  'file_id.diz',
+  '.htaccess',
+  'robots.txt',
+  'favicon.ico',
+  'Makefile',
+  'INSTALL.TXT',
+  'hello.c',
+  'TODO.md',
+  'LEFT-PAD.JS',
+  'passwords.txt',
+  '~/.vimrc',
+  'wp-config.php',
 ];
 
 function drawCodePanel(p, sp, r, now, alpha) {
@@ -627,9 +672,25 @@ function drawCodePanel(p, sp, r, now, alpha) {
 
   // Draw code lines if in showCode or expand phase
   if ((phase === 'showCode' || phase === 'expand' || phase === 'pixelate') && panelAlpha > 10) {
-    // Pick random code snippet for this cycle (consistent during cycle)
-    const snippetIndex = Math.floor((now / panelAnimDuration) * CODE_SNIPPETS.length) % CODE_SNIPPETS.length;
-    const snippet = CODE_SNIPPETS[snippetIndex];
+    // Pick file name from agent's recent files, or fallback to generic list
+    // Shuffle order per-sprite so each blob cycles through files differently
+    const srcList = (sp.recentFiles && sp.recentFiles.length > 0) ? sp.recentFiles : FALLBACK_SNIPPETS;
+    if (!sp._shuffledFiles || sp._shuffledSrc !== srcList || sp._shuffledLen !== srcList.length) {
+      // (Re-)shuffle when source list changes
+      sp._shuffledFiles = [...srcList];
+      sp._shuffledSrc = srcList;
+      sp._shuffledLen = srcList.length;
+      // Fisher-Yates using sprite phase as seed for variety between blobs
+      let seed = Math.abs(Math.round((sp.phase || 0) * 100000)) || 1;
+      for (let i = sp._shuffledFiles.length - 1; i > 0; i--) {
+        seed = (seed * 16807 + 0) % 2147483647; // LCG PRNG
+        const j = seed % (i + 1);
+        [sp._shuffledFiles[i], sp._shuffledFiles[j]] = [sp._shuffledFiles[j], sp._shuffledFiles[i]];
+      }
+    }
+    const fileList = sp._shuffledFiles;
+    const snippetIndex = Math.floor((now / panelAnimDuration) * fileList.length) % fileList.length;
+    const snippet = fileList[snippetIndex];
 
     p.textSize(8);
     p.textAlign(p.LEFT, p.CENTER);
@@ -640,8 +701,8 @@ function drawCodePanel(p, sp, r, now, alpha) {
 
     // Typewriter effect - reveal characters progressively
     const charProgress = Math.min(phaseProgress * 2, 1);
-    const visibleChars = Math.floor(snippet.text.length * charProgress);
-    const visibleText = snippet.text.substring(0, visibleChars);
+    const visibleChars = Math.floor(snippet.length * charProgress);
+    const visibleText = snippet.substring(0, visibleChars);
 
     // Single color for all code (using function color - nice blue)
     p.fill(...ONE_DARK.function, Math.floor(panelAlpha * 0.95));
@@ -838,13 +899,46 @@ function updateWander(sp, now) {
 
 function updateBlinking(sp, now) {
   sp.blinkTimer -= 1/60;
-  if (sp.blinkTimer <= 0) {
+  if (sp.isBlinking && sp.blinkTimer <= 0) {
+    // Blink finished → open eyes, schedule next blink
+    sp.isBlinking = false;
+    sp.blinkTimer = 2 + Math.random() * 4;  // Next blink in 2-6 seconds
+  } else if (!sp.isBlinking && sp.blinkTimer <= 0) {
+    // Time to blink → close eyes
     sp.isBlinking = true;
     sp.blinkTimer = 0.1;  // Blink duration
   }
-  if (sp.isBlinking && sp.blinkTimer <= 0) {
-    sp.isBlinking = false;
-    sp.blinkTimer = 2 + Math.random() * 4;  // Next blink in 2-6 seconds
+}
+
+function updateIdleEyes(sp, now, status, otherAgentsActive) {
+  if (status !== "idle") {
+    sp.idleEyeState = "open";
+    return;
+  }
+
+  sp.idleEyeTimer -= 1/60;
+  if (sp.idleEyeTimer <= 0) {
+    // Pick next idle expression — mostly sleeping, rare eye-opens
+    const roll = Math.random();
+    if (otherAgentsActive && roll < 0.12) {
+      // Curious peek when others are working
+      sp.idleEyeState = "peek";
+      sp.idleGlanceDir = Math.random() < 0.5 ? -1 : 1;
+      sp.idleEyeTimer = 1 + Math.random() * 1.5;
+    } else if (roll < 0.22) {
+      // Half-lidded drowsy look
+      sp.idleEyeState = "halfLid";
+      sp.idleEyeTimer = 2 + Math.random() * 3;
+    } else if (roll < 0.27) {
+      // Brief glance around
+      sp.idleEyeState = "glance";
+      sp.idleGlanceDir = Math.random() < 0.5 ? -1 : 1;
+      sp.idleEyeTimer = 0.6 + Math.random() * 1;
+    } else {
+      // Back to zen (closed eyes)
+      sp.idleEyeState = "closed";
+      sp.idleEyeTimer = 6 + Math.random() * 8;
+    }
   }
 }
 
@@ -922,6 +1016,28 @@ new p5((p) => {
     drawFloor(p);
 
     const now = p.millis() / 1000;
+
+    // Clean up agents that have finished fading out
+    let agentsRemoved = false;
+    for (const id in agents) {
+      if (agents[id]._fadeOutStart && Date.now() - agents[id]._fadeOutStart > 1000) {
+        delete agents[id];
+        removeAgentPosition(id);
+        agentsRemoved = true;
+      }
+    }
+
+    // Update UI after fade-out cleanup (e.g. when disconnected and blobs finish fading)
+    if (agentsRemoved) {
+      const remaining = Object.values(agents);
+      const mc = remaining.filter(a => !a.parentID).length;
+      const sc = remaining.filter(a => a.parentID).length;
+      let ct = mc === 0 ? "" : `${mc} agent${mc !== 1 ? "s" : ""}`;
+      if (sc > 0) ct += ` + ${sc} subagent${sc !== 1 ? "s" : ""}`;
+      agentCountEl.textContent = ct;
+      noAgents.classList.toggle("hidden", remaining.length > 0);
+    }
+
     const agentList = Object.values(agents);
 
     // Separate main agents from subagents
@@ -957,11 +1073,18 @@ new p5((p) => {
         // Update status transition (smooth morph between states)
         updateStatusTransition(sprite, agent.status);
 
+        // Sync recent files for code panel animation
+        sprite.recentFiles = agent.recentFiles;
+
         // Update wandering/pacing behavior
         updateWander(sprite, now);
 
         // Update blinking
         updateBlinking(sprite, now);
+
+        // Update idle eye expression
+        const otherAgentsActive = mainAgents.some(other => other.id !== agent.id && other.status !== "idle");
+        updateIdleEyes(sprite, now, agent.status, otherAgentsActive);
 
         // Move sprite toward target + wander offset (with spring physics)
         sprite.tx = targetX + sprite.wanderOffset.x;
@@ -984,7 +1107,14 @@ new p5((p) => {
       // Use smoothly interpolated visual values (no blending between configs)
       const pulse = Math.sin(now * sprite.currentPulse * Math.PI * 2 + sprite.phase);
       const radius = sprite.currentRadius + pulse * 3;
-      const alpha = sprite.currentAlpha;
+
+      // Fade-out alpha for departing agents
+      let fadeAlpha = 1.0;
+      if (agent._fadeOutStart) {
+        const fadeProgress = (Date.now() - agent._fadeOutStart) / 1000;
+        fadeAlpha = Math.max(0, 1.0 - fadeProgress);
+      }
+      const alpha = sprite.currentAlpha * fadeAlpha;
 
       // Status-specific effects
       const isError = agent.status === "error";
@@ -1057,16 +1187,55 @@ new p5((p) => {
       const eyeScaleX = scale * widthBias;
       const eyeScaleY = scale;
 
-      if (sprite.isBlinking) {
-        // Closed eyes (horizontal line)
+      // Determine eye state
+      const eyeMode = sprite.isBlinking ? "blink"
+        : (agent.status === "idle" ? sprite.idleEyeState : "open");
+
+      if (eyeMode === "blink" || eyeMode === "closed") {
+        // Closed eyes (horizontal lines) — zen meditation look
         p.stroke(10, 10, 30, alpha);
         p.strokeWeight(2);
         const eyeSpacing = radius * 0.35 * eyeScaleX;
         p.line(drawX - eyeSpacing, eyeY, drawX - eyeSpacing * 0.3, eyeY);
         p.line(drawX + eyeSpacing * 0.3, eyeY, drawX + eyeSpacing, eyeY);
         p.noStroke();
+      } else if (eyeMode === "halfLid") {
+        // Half-lidded drowsy eyes — smaller, sleepy
+        p.fill(255, 255, 255, alpha * 0.7);
+        const eyeWidth = 5 * eyeScaleX;
+        const eyeHeight = 3 * eyeScaleY;  // Squished vertically
+        const eyeXOffset = radius * 0.22 * eyeScaleX;
+        p.ellipse(drawX - eyeXOffset, eyeY + 1, eyeWidth, eyeHeight);
+        p.ellipse(drawX + eyeXOffset, eyeY + 1, eyeWidth, eyeHeight);
+        // Tiny pupils looking down
+        p.fill(10, 10, 30, alpha * 0.8);
+        const pupilWidth = 2 * eyeScaleX;
+        const pupilHeight = 2 * eyeScaleY;
+        p.ellipse(drawX - eyeXOffset, eyeY + 1.5, pupilWidth, pupilHeight);
+        p.ellipse(drawX + eyeXOffset, eyeY + 1.5, pupilWidth, pupilHeight);
+        // Eyelid line on top
+        p.stroke(10, 10, 30, alpha * 0.4);
+        p.strokeWeight(1);
+        p.line(drawX - eyeXOffset - 3, eyeY - 0.5, drawX - eyeXOffset + 3, eyeY);
+        p.line(drawX + eyeXOffset - 3, eyeY, drawX + eyeXOffset + 3, eyeY - 0.5);
+        p.noStroke();
+      } else if (eyeMode === "peek" || eyeMode === "glance") {
+        // Curious peek / glance — open eyes looking to one side
+        p.fill(255, 255, 255, alpha * 0.9);
+        const eyeWidth = 5 * eyeScaleX;
+        const eyeHeight = (eyeMode === "peek" ? 4.5 : 6) * eyeScaleY;
+        const eyeXOffset = radius * 0.22 * eyeScaleX;
+        p.ellipse(drawX - eyeXOffset, eyeY, eyeWidth, eyeHeight);
+        p.ellipse(drawX + eyeXOffset, eyeY, eyeWidth, eyeHeight);
+        // Pupils shifted in glance direction
+        const glanceShift = sprite.idleGlanceDir * 1.5 * eyeScaleX;
+        p.fill(10, 10, 30, alpha);
+        const pupilWidth = 2.5 * eyeScaleX;
+        const pupilHeight = 3 * eyeScaleY;
+        p.ellipse(drawX - eyeXOffset + glanceShift, eyeY, pupilWidth, pupilHeight);
+        p.ellipse(drawX + eyeXOffset + glanceShift, eyeY, pupilWidth, pupilHeight);
       } else {
-        // Open eyes
+        // Normal open eyes (active states)
         p.fill(255, 255, 255, alpha * 0.9);
         const eyeWidth = 5 * eyeScaleX;
         const eyeHeight = 6 * eyeScaleY;
@@ -1095,21 +1264,22 @@ new p5((p) => {
         p.fill(10, 10, 30, alpha);
         p.ellipse(drawX - eyeXOffset + pupilShift, eyeY + pupilV, pupilWidth, pupilHeight);
         p.ellipse(drawX + eyeXOffset + pupilShift, eyeY + pupilV, pupilWidth, pupilHeight);
+      }
 
-        // Error expression (X_X eyes)
-        if (isError) {
-          p.stroke(10, 10, 30, alpha);
-          p.strokeWeight(1.5);
-          // X eyes
-          const ex1 = drawX - eyeXOffset, ey1 = eyeY - 1;
-          const ex2 = drawX + eyeXOffset, ey2 = eyeY - 1;
-          const es = 2.5 * eyeScaleX;
-          p.line(ex1 - es, ey1 - es, ex1 + es, ey1 + es);
-          p.line(ex1 - es, ey1 + es, ex1 + es, ey1 - es);
-          p.line(ex2 - es, ey2 - es, ex2 + es, ey2 + es);
-          p.line(ex2 - es, ey2 + es, ex2 + es, ey2 - es);
-          p.noStroke();
-        }
+      // Error expression (X_X eyes) — overlay on top of whatever eye state
+      if (isError) {
+        const eyeXOffset = radius * 0.22 * eyeScaleX;
+        p.stroke(10, 10, 30, alpha);
+        p.strokeWeight(1.5);
+        // X eyes
+        const ex1 = drawX - eyeXOffset, ey1 = eyeY - 1;
+        const ex2 = drawX + eyeXOffset, ey2 = eyeY - 1;
+        const es = 2.5 * eyeScaleX;
+        p.line(ex1 - es, ey1 - es, ex1 + es, ey1 + es);
+        p.line(ex1 - es, ey1 + es, ex1 + es, ey1 - es);
+        p.line(ex2 - es, ey2 - es, ex2 + es, ey2 + es);
+        p.line(ex2 - es, ey2 + es, ex2 + es, ey2 - es);
+        p.noStroke();
       }
 
       // Fiddling objects based on status
@@ -1170,7 +1340,9 @@ new p5((p) => {
 
         // Update status transition
         updateStatusTransition(sprite, subagent.status);
+        sprite.recentFiles = subagent.recentFiles;
         updateBlinking(sprite, now);
+        updateIdleEyes(sprite, now, subagent.status, false);
 
         // Calculate fade out if agent is being removed
         let fadeAlpha = 1.0;
@@ -1242,12 +1414,29 @@ new p5((p) => {
         const eyeY = drawY - radius * 0.1;
         const eyeSize = 3;
         const eyeAlpha = alpha;
-        if (sprite.isBlinking) {
+        const subEyeMode = sprite.isBlinking ? "blink"
+          : (subagent.status === "idle" ? sprite.idleEyeState : "open");
+        if (subEyeMode === "blink" || subEyeMode === "closed") {
           p.stroke(10, 10, 30, eyeAlpha);
           p.strokeWeight(1.5);
           p.line(drawX - radius * 0.3, eyeY, drawX - radius * 0.1, eyeY);
           p.line(drawX + radius * 0.1, eyeY, drawX + radius * 0.3, eyeY);
           p.noStroke();
+        } else if (subEyeMode === "halfLid") {
+          p.fill(255, 255, 255, eyeAlpha * 0.7);
+          p.ellipse(drawX - radius * 0.2, eyeY + 0.5, eyeSize + 1, eyeSize * 0.6);
+          p.ellipse(drawX + radius * 0.2, eyeY + 0.5, eyeSize + 1, eyeSize * 0.6);
+          p.fill(10, 10, 30, eyeAlpha * 0.8);
+          p.ellipse(drawX - radius * 0.2, eyeY + 1, 2, 1.5);
+          p.ellipse(drawX + radius * 0.2, eyeY + 1, 2, 1.5);
+        } else if (subEyeMode === "peek" || subEyeMode === "glance") {
+          p.fill(255, 255, 255, eyeAlpha * 0.9);
+          p.ellipse(drawX - radius * 0.2, eyeY, eyeSize + 1, subEyeMode === "peek" ? eyeSize + 1 : eyeSize + 2);
+          p.ellipse(drawX + radius * 0.2, eyeY, eyeSize + 1, subEyeMode === "peek" ? eyeSize + 1 : eyeSize + 2);
+          const glanceShift = sprite.idleGlanceDir * 1;
+          p.fill(10, 10, 30, eyeAlpha);
+          p.ellipse(drawX - radius * 0.2 + glanceShift, eyeY, 2, 2.5);
+          p.ellipse(drawX + radius * 0.2 + glanceShift, eyeY, 2, 2.5);
         } else {
           p.fill(255, 255, 255, eyeAlpha * 0.9);
           p.ellipse(drawX - radius * 0.2, eyeY, eyeSize + 1, eyeSize + 2);
