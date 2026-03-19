@@ -6,6 +6,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	agentFileActivity,
+	buildRecentFiles,
+	capVariants,
 	folderName,
 	getActivityScale,
 	hueFromId,
@@ -128,7 +130,7 @@ describe("toolStatus", () => {
 	});
 
 	it("should return thinking status for task", () => {
-		expect(toolStatus("task")).toBe("thinking");
+		expect(toolStatus("task")).toBe("waiting");
 	});
 
 	it("should handle unknown tools", () => {
@@ -166,8 +168,8 @@ describe("toolLabel", () => {
 		expect(toolLabel("bash")).toBe("💻 running");
 	});
 
-	it("should return thinking label for task", () => {
-		expect(toolLabel("task")).toBe("🤖 spawning");
+	it("should return spawning label for task", () => {
+		expect(toolLabel("task")).toBe("🤖 spawning…");
 	});
 
 	it("should return generic label for unknown tools", () => {
@@ -303,5 +305,101 @@ describe("recordFileActivity", () => {
 		recordFileActivity(id, "file_with_underscores.ts");
 
 		expect(agentFileActivity.get(id)?.size).toBe(3);
+	});
+});
+
+describe("capVariants", () => {
+	it("should return the original name as first item", () => {
+		const result = capVariants("cat.txt");
+		expect(result[0]).toBe("cat.txt");
+	});
+
+	it("should generate variants by toggling letter case", () => {
+		const result = capVariants("cat.txt", 4);
+		expect(result.length).toBe(4);
+		// All variants should be unique
+		expect(new Set(result).size).toBe(result.length);
+		// All should be case-insensitively the same
+		for (const v of result) {
+			expect(v.toLowerCase()).toBe("cat.txt");
+		}
+	});
+
+	it("should respect maxVariants limit", () => {
+		const result = capVariants("hello.ts", 3);
+		expect(result.length).toBe(3);
+	});
+
+	it("should handle names with no letters", () => {
+		const result = capVariants("123.456");
+		expect(result).toEqual(["123.456"]);
+	});
+
+	it("should handle single-letter names", () => {
+		const result = capVariants("a", 4);
+		expect(result.length).toBe(2); // "a" and "A" only
+		expect(result).toContain("a");
+		expect(result).toContain("A");
+	});
+
+	it("should not duplicate the original", () => {
+		const result = capVariants("X.ts", 10);
+		const count = result.filter(v => v === "X.ts").length;
+		expect(count).toBe(1);
+	});
+});
+
+describe("buildRecentFiles", () => {
+	it("should return empty array when no activity", () => {
+		expect(buildRecentFiles("nonexistent")).toEqual([]);
+	});
+
+	it("should return basenames of tracked files", () => {
+		const id = "test-agent";
+		recordFileActivity(id, "/src/components/App.tsx");
+		recordFileActivity(id, "/src/utils/helpers.ts");
+
+		const result = buildRecentFiles(id);
+		expect(result).toContain("App.tsx");
+		expect(result).toContain("helpers.ts");
+	});
+
+	it("should pad short lists with cap variants to reach minItems", () => {
+		const id = "test-agent";
+		recordFileActivity(id, "cat.txt");
+
+		const result = buildRecentFiles(id, 4);
+		expect(result.length).toBe(4);
+		// First item should be the original
+		expect(result[0]).toBe("cat.txt");
+		// All items should be case-insensitively the same base
+		for (const v of result) {
+			expect(v.toLowerCase()).toBe("cat.txt");
+		}
+	});
+
+	it("should not pad when enough unique files exist", () => {
+		const id = "test-agent";
+		for (let i = 0; i < 10; i++) {
+			recordFileActivity(id, `/src/file${i}.ts`);
+		}
+
+		const result = buildRecentFiles(id, 8);
+		expect(result.length).toBe(8);
+		// Should all be distinct real basenames, no cap variants
+		for (const v of result) {
+			expect(v).toMatch(/^file\d+\.ts$/);
+		}
+	});
+
+	it("should deduplicate basenames from different paths", () => {
+		const id = "test-agent";
+		recordFileActivity(id, "/src/index.ts");
+		recordFileActivity(id, "/lib/index.ts");
+
+		const result = buildRecentFiles(id, 2);
+		// "index.ts" appears twice in paths but should only be listed once as a basename
+		const originals = result.filter(v => v === "index.ts");
+		expect(originals.length).toBe(1);
 	});
 });
