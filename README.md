@@ -1,6 +1,8 @@
 # Blob Office
 
-![Demo](media-previews/main_show.gif)
+> **Attribution**: This project is a fork of [Session Character Visualizer](https://github.com/Caffa/Session-Character-Visualizer) by [@Caffa](https://github.com/Caffa), who created the original concept, plugin architecture, and p5.js blob renderer. The `opencode-blob-office` npm package builds on that foundation.
+
+![Demo](media-previews/lifecycle.gif)
 
 An [OpenCode](https://github.com/anomalyco/opencode) plugin that visualizes AI coding sessions as animated blob characters in a virtual office.
 
@@ -8,22 +10,22 @@ An [OpenCode](https://github.com/anomalyco/opencode) plugin that visualizes AI c
 
 Each session appears as a colored blob with speech bubbles, status animations, and idle eye expressions. Subagents orbit their parents. The viewer runs in a browser via p5.js, connected over WebSocket.
 
-![subagents](media-previews/subagents.gif)
-
-> **Attribution**: This project is a fork of [Session Character Visualizer](https://github.com/Caffa/Session-Character-Visualizer) by [@Caffa](https://github.com/Caffa), who created the original concept, plugin architecture, and p5.js blob renderer. The `blob-office` npm package builds on that foundation.
+| Agent Lifecycle | Subagents | Error Recovery | Multi-Session |
+| :---: | :---: | :---: | :---: |
+| ![lifecycle](media-previews/lifecycle.gif) | ![subagents](media-previews/subagents.gif) | ![error-recovery](media-previews/error-recovery.gif) | ![multi-session](media-previews/multi-session.gif) |
 
 ---
 
 ## Installation
 
 ```bash
-bunx blob-office install
+bunx opencode-blob-office install
 ```
 
 Or with npx:
 
 ```bash
-npx blob-office install
+npx opencode-blob-office install
 ```
 
 Restart OpenCode. The viewer opens automatically in your browser at `localhost:2727`.
@@ -38,20 +40,16 @@ bash install.sh
 
 ---
 
-## What This Fork Changes
+## Features
 
-This fork diverges from upstream in architecture and scope. Key differences:
-
-- **Unified server** — single port serves both HTTP viewer and WebSocket (was separate)
-- **Graceful disconnect** — blobs fade out on disconnect, viewer reconnects with backoff (was instant clear + "reconnecting...")
+- **Unified server** — single port serves both HTTP viewer and WebSocket
+- **Graceful disconnect** — blobs fade out on disconnect, viewer reconnects with backoff
 - **Idle eye expressions** — sleeping blobs occasionally peek, glance, or go half-lidded
-- **Real filenames in code panels** — editing blobs show actual files being touched, not hardcoded list
+- **Real filenames in code panels** — editing blobs show actual files being touched
 - **File activity tracking** — all file-touching tools (read, glob, grep) tracked, not just writes
-- **npm packaging** — `bunx blob-office install` / `npx blob-office install` with CLI
+- **npm packaging** — `bunx opencode-blob-office install` / `npx opencode-blob-office install` with CLI
 - **Test infrastructure** — bun:test unit/integration suite + Playwright E2E tests
 - **Graceful shutdown** — `serverclosing` message on SIGINT/SIGTERM so viewer can fade + close
-
-See upstream for the original: [Caffa/Session-Character-Visualizer](https://github.com/Caffa/Session-Character-Visualizer)
 
 ---
 
@@ -100,6 +98,9 @@ bun run test:visual
 
 # Mock server for local dev
 bun run mock-server
+
+# Regenerate preview GIFs (requires ffmpeg)
+bun run preview:generate
 ```
 
 ---
@@ -128,11 +129,3 @@ git push && git push --tags
 ## License
 
 MIT — see upstream repository for original license terms.
-
----
-
-## Related
-
-- [Caffa/Session-Character-Visualizer](https://github.com/Caffa/Session-Character-Visualizer) — the original project this fork is based on
-- [Caffa/Pixel-Office](https://github.com/Caffa/Pixel-Office) — similar concept for VSCode + Claude
-- [OpenCode](https://github.com/anomalyco/opencode) — the AI coding tool this plugin extends

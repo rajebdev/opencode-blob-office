@@ -5,6 +5,16 @@
 tests/e2e/screenshots/*.png
 !tests/e2e/screenshots/.gitkeep
 
+# Preview video intermediates (webm → gif via ffmpeg)
+media-previews/webm/
+
+# Playwright test results and reports
+test-results/
+playwright-report/
+
+# Test reports (auto-generated)
+tests/reports/
+
 # OS artifacts
 .DS_Store
 Thumbs.db
