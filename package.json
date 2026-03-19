@@ -10,6 +10,7 @@
     "bin/blob-office.js",
     "blob-office.ts",
     "blob-office.html",
+    "LICENSE",
     "README.md"
   ],
   "keywords": [
