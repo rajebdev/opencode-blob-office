@@ -5,9 +5,10 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { getTestPort } from "./test-port.ts";
 
 test.describe("Agent State Capture", () => {
-  const testPort = 2727;
+  const testPort = getTestPort();
 
   test.beforeEach(async ({ page }) => {
     // Load the blob-office viewer from the mock server

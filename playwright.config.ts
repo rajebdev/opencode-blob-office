@@ -1,11 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
-import { spawn } from 'child_process';
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
-
-let mockServerProcess: any;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -45,15 +42,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
 
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
+    /* Preview capture — records video for each scenario, outputs to media-previews/ */
+    {
+      name: 'previews',
+      testMatch: 'capture-previews.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        video: {
+          mode: 'on',
+          size: { width: 640, height: 480 },
+        },
+        viewport: { width: 640, height: 480 },
+      },
+    },
   ],
 
   /* Global setup/teardown for mock server */

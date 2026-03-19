@@ -4,12 +4,13 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
+import { getTestPort } from "./test-port.ts";
 
 test.describe("Blob Office Visual Tests", () => {
-  const testPort = 2727;
+  const testPort = getTestPort();
 
   test.beforeAll(async () => {
-    // Mock server should be running via globalSetup on port 2727
+    // Mock server should be running via globalSetup
     // Test that it's accessible
     try {
       const response = await fetch(`http://localhost:${testPort}/scenario/status`);
@@ -28,7 +29,7 @@ test.describe("Blob Office Visual Tests", () => {
 
   test.beforeEach(async ({ page }) => {
     // Load the blob-office viewer from the mock server (serves HTML with injected WS port)
-    await page.goto("http://localhost:2727/");
+    await page.goto(`http://localhost:${testPort}/`);
 
     // Wait for page to load
     await page.waitForLoadState("domcontentloaded");

@@ -4,8 +4,11 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { getTestPort } from "./test-port.ts";
 
 test.describe("Simple Tests", () => {
+  const testPort = getTestPort();
+
   test.afterEach(async () => {
     // Pause for 1 second in visual mode so test developer can observe
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -13,7 +16,7 @@ test.describe("Simple Tests", () => {
 
   test("should load blob-office.html", async ({ page }) => {
     // Load the blob-office viewer from the mock server (serves HTML with injected WS port)
-    await page.goto("http://localhost:2727/");
+    await page.goto(`http://localhost:${testPort}/`);
 
     // Wait for page to load
     await page.waitForLoadState("domcontentloaded");
