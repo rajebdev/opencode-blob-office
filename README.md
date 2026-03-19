@@ -1,20 +1,20 @@
-# 🏢 Session Character Visualizer
+# Blob Office
 
 ![Demo](media-previews/main_show.gif)
 
-OpenCode plugin for visualizing AI coding sessions in a virtual office workspace.
+An [OpenCode](https://github.com/anomalyco/opencode) plugin that visualizes AI coding sessions as animated blob characters in a virtual office.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-Session Character Visualizer creates a blob character visualization of your coding sessions. Each session appears as a colored agent with speech bubbles showing current status and activity. Subagents show as smaller blobs orbitting their parents.
+Each session appears as a colored blob with speech bubbles, status animations, and idle eye expressions. Subagents orbit their parents. The viewer runs in a browser via p5.js, connected over WebSocket.
 
 ![subagents](media-previews/subagents.gif)
+
+> **Attribution**: This project is a fork of [Session Character Visualizer](https://github.com/Caffa/Session-Character-Visualizer) by [@Caffa](https://github.com/Caffa), who created the original concept, plugin architecture, and p5.js blob renderer. The `blob-office` npm package builds on that foundation.
 
 ---
 
 ## Installation
-
-### One-Liner (Recommended)
 
 ```bash
 bunx blob-office install
@@ -26,128 +26,102 @@ Or with npx:
 npx blob-office install
 ```
 
+Restart OpenCode. The viewer opens automatically in your browser at `localhost:2727`.
+
 ### Manual
 
 ```bash
-git clone https://github.com/Caffa/Session-Character-Visualizer.git
-cd Session-Character-Visualizer
+git clone https://github.com/cbrunnkvist/opencode-blob-office.git
+cd opencode-blob-office
 bash install.sh
 ```
 
-Restart OpenCode. The viewer opens automatically in your browser.
-
 ---
 
-## Quick Start
+## What This Fork Changes
 
-```bash
-# Install
-bunx blob-office install
+This fork diverges from upstream in architecture and scope. Key differences:
 
-# Restart OpenCode
-opencode --restart
+- **Unified server** — single port serves both HTTP viewer and WebSocket (was separate)
+- **Graceful disconnect** — blobs fade out on disconnect, viewer reconnects with backoff (was instant clear + "reconnecting...")
+- **Idle eye expressions** — sleeping blobs occasionally peek, glance, or go half-lidded
+- **Real filenames in code panels** — editing blobs show actual files being touched, not hardcoded list
+- **File activity tracking** — all file-touching tools (read, glob, grep) tracked, not just writes
+- **npm packaging** — `bunx blob-office install` / `npx blob-office install` with CLI
+- **Test infrastructure** — bun:test unit/integration suite + Playwright E2E tests
+- **Graceful shutdown** — `serverclosing` message on SIGINT/SIGTERM so viewer can fade + close
 
-# Open viewer
-open ~/.config/opencode/plugins/blob-office.html
-```
+See upstream for the original: [Caffa/Session-Character-Visualizer](https://github.com/Caffa/Session-Character-Visualizer)
 
 ---
 
 ## Agent States
 
-| State    | Visual Features                    | Description                                                        |
+| State    | Visual                             | Description                                                        |
 | -------- | ---------------------------------- | ------------------------------------------------------------------ |
-| Idle     | 💤, slow pulse, no ring            | Finished work, waiting for next task. Subagents removed after 10s. |
-| Thinking | 🧠, expanding ring, sparkles       | Processing/generating. Eyes move rhythmically tracking thoughts.   |
-| Editing  | ✏️, code panel with typewriter     | Writing/editing files. Shows animated panel with file names.       |
-| Reading  | 📖 with glasses, book opens/closes | Reading files, searching. Glasses wobble while scanning.           |
-| Running  | 💻, fast pulse, motion streaks     | Executing bash commands, terminal operations.                      |
-| Waiting  | ⚠️, nervous shake, bouncing ❓     | Blocked needing user permission. Gentle oscillation.               |
-| Error    | ❌, X_X eyes, red pulse, ⚡        | Something went wrong - needs attention.                            |
+| Idle     | Closed eyes, slow pulse            | Finished work, waiting. Subagents removed after 10s.               |
+| Thinking | Expanding ring, sparkles           | Processing/generating. Eyes track rhythmically.                    |
+| Editing  | Code panel with typewriter          | Writing/editing files. Panel shows actual filenames.               |
+| Reading  | Glasses, book opens/closes          | Reading files, searching. Glasses wobble.                          |
+| Running  | Fast pulse, motion streaks          | Executing bash commands.                                           |
+| Waiting  | Nervous shake, bouncing question    | Blocked on permission, or supervising subagents.                   |
+| Error    | X_X eyes, red pulse                 | Something went wrong.                                              |
 
-**Agent Colors**: Each agent gets a unique hue (0-360°) derived from its session ID. Colors persist per session - same agent always has the same color. Subagents use their parent's hue with a +30° offset for visual distinction.
+Each agent gets a unique hue derived from its session ID. Subagents use parent hue +30°.
 
 ---
 
 ## Architecture
 
 ```
-blob-office.ts (OpenCode plugin)
-  ├─ Session events: created, deleted, status changes
-  ├─ Tool executions: read, edit, bash, webfetch
-  └─ WebSocket server: ws://localhost:2727-2736 (auto-discovery)
-       └─ blob-office.html (p5.js renderer)
-            ├─ Radial agent positioning
-            └─ Status-based animations
+blob-office.ts          Plugin — hooks into OpenCode events, serves HTML + WebSocket
+blob-office.html        Viewer — p5.js canvas, WebSocket client, all rendering
+blob-office-mock-server.ts  Mock server for testing
 ```
 
-### Technical
-
-- WebSocket on port 2727-2736 (auto-discovery)
-- Event-driven updates from OpenCode hooks
-- p5.js canvas rendering
-- No bundling required
-- Toast notification on startup shows WebSocket URL
-
----
-
-## Configuration
-
-### Port Discovery
-
-The plugin automatically finds an available port starting from 2727. If port 2727 is in use, it tries 2728, 2729, etc. (up to 2736).
-
-Both the server (plugin) and client (viewer) support automatic port discovery.
+- Single server on port 2727 (scans up to 2736 if taken)
+- Event-driven via OpenCode hooks (`tool.execute.before/after`, `event`)
+- Multiple OpenCode instances sync agents through the same server
+- No bundler, no framework
 
 ---
 
 ## Development
 
-### Run Tests
-
 ```bash
-bun test
+# Run all tests
+bun run test
+
+# Unit tests only
+bun run test:unit
+
+# Playwright visual tests
+bun run test:visual
+
+# Mock server for local dev
+bun run mock-server
 ```
-
-### Regenerate Preview GIFs
-
-```bash
-cd media-previews
-./START.sh
-```
-
-**Requirements**: macOS, ffmpeg (`brew install ffmpeg`)
 
 ---
 
 ## Troubleshooting
 
-**Viewer doesn't open**: Open `~/.config/opencode/plugins/blob-office.html` manually
+**Viewer doesn't open**: Navigate to `http://localhost:2727` manually.
 
-**Port conflicts**: The plugin automatically finds an available port (2727-2736). Check the toast notification for the actual port in use.
+**Port conflicts**: Plugin auto-discovers ports 2727–2736. Check OpenCode logs for `[blob-office]`.
 
-**No agents appearing**:
-
-1. Check OpenCode logs for `[blob-office]` prefix
-2. Run `bun install` in plugin folder
-3. Open browser console on viewer page
-
----
-
-## Related Projects
-
-**[Pixel Office](https://github.com/Caffa/Pixel-Office)** - A VSCode & Claude-based visualization plugin with a similar concept. While this plugin (Session Character Visualizer) is designed specifically for OpenCode, Pixel Office provides a similar character visualization experience for VSCode users working with Claude.
-
-Both projects share the goal of making AI coding sessions more engaging and visual, but are built for different platforms and AI coding environments.
+**No agents appearing**: Check OpenCode logs, run `bun install` in plugin folder, check browser console.
 
 ---
 
 ## License
 
-MIT License - see LICENSE file.
+MIT — see upstream repository for original license terms.
 
 ---
 
-## About
+## Related
 
-Session Character Visualizer is a community plugin for [OpenCode](https://github.com/anomalyco/opencode), not affiliated with the OpenCode team.
+- [Caffa/Session-Character-Visualizer](https://github.com/Caffa/Session-Character-Visualizer) — the original project this fork is based on
+- [Caffa/Pixel-Office](https://github.com/Caffa/Pixel-Office) — similar concept for VSCode + Claude
+- [OpenCode](https://github.com/anomalyco/opencode) — the AI coding tool this plugin extends

@@ -23,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cbrunnkvist/Session-Character-Visualizer.git"
+    "url": "git+https://github.com/cbrunnkvist/opencode-blob-office.git"
   },
   "scripts": {
     "plugin-installer": "bash install.sh",
