@@ -19,6 +19,7 @@ mkdir -p "$PLUGIN_DIR"
 
 echo "🔌 Copying plugin files…"
 cp blob-office.ts "$PLUGIN_DIR/blob-office.ts"
+cp blob-office.html "$PLUGIN_DIR/blob-office.html"
 
 # Merge package.json deps if one already exists, else just copy
 if [ -f "$PLUGIN_DIR/package.json" ]; then
@@ -41,9 +42,6 @@ else
 	cp package.json "$PLUGIN_DIR/package.json"
 fi
 
-echo "🖥️  Copying viewer…"
-cp blob-office.html "$PLUGIN_DIR/blob-office.html"
-
 echo ""
 if [ "$MODE" = "update" ]; then
 	echo "✅ Update complete! Restart OpenCode to load the new version."
@@ -54,5 +52,5 @@ else
 	echo "   3. The viewer opens automatically in your browser"
 fi
 echo ""
-echo "   Viewer is at: $PLUGIN_DIR/blob-office.html"
+echo "   The viewer opens automatically when OpenCode starts."
 echo "   You can also open it manually anytime."

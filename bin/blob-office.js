@@ -22,7 +22,7 @@ Options:
 
 After installation:
   1. Restart OpenCode
-  2. Open the viewer at ~/.config/opencode/plugins/blob-office.html
+  2. The viewer opens automatically in your browser
   3. Start coding and watch your sessions come to life!
 `;
 
@@ -34,7 +34,6 @@ async function install() {
 	const srcDir = join(__dirname, "..");
 	const files = [
 		{ src: join(srcDir, "blob-office.ts"), dest: join(PLUGIN_DIR, "blob-office.ts") },
-		{ src: join(srcDir, "blob-office.html"), dest: join(PLUGIN_DIR, "blob-office.html") },
 	];
 
 	for (const file of files) {
@@ -69,7 +68,7 @@ async function install() {
 	}
 
 	console.log(`\n✅ Blob Office installed successfully!\n`);
-	console.log(`   Viewer: file://${PLUGIN_DIR}/blob-office.html`);
+	console.log(`   The viewer opens automatically when OpenCode starts.`);
 	console.log(`   WebSocket will run on ws://localhost:2727 (or next available port)\n`);
 	console.log(`   Restart OpenCode to activate the plugin.\n`);
 }
@@ -79,7 +78,6 @@ async function uninstall() {
 
 	const files = [
 		join(PLUGIN_DIR, "blob-office.ts"),
-		join(PLUGIN_DIR, "blob-office.html"),
 	];
 
 	let removedAny = false;
