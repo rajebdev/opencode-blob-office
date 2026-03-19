@@ -1,13 +1,13 @@
 {
-  "name": "blob-office",
+  "name": "opencode-blob-office",
   "version": "2.0.0",
   "description": "Visualize OpenCode sessions as animated blob characters",
   "type": "module",
   "bin": {
-    "blob-office": "bin/blob-office.js"
+    "opencode-blob-office": "bin/opencode-blob-office.js"
   },
   "files": [
-    "bin/blob-office.js",
+    "bin/opencode-blob-office.js",
     "blob-office.ts",
     "blob-office.html",
     "LICENSE",
@@ -37,7 +37,10 @@
     "test:visual:ui": "playwright test --ui",
     "test:visual:headed": "playwright test --headed",
     "test:states": "playwright test tests/e2e/state-capture.spec.ts",
-    "test:watch": "bun tests/run-tests.ts --watch"
+    "test:watch": "bun tests/run-tests.ts --watch",
+    "preview:capture": "playwright test --project=previews",
+    "preview:convert": "bash scripts/convert-previews.sh",
+    "preview:generate": "bun run preview:capture && bun run preview:convert"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.0.0"
