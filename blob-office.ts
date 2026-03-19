@@ -6,8 +6,7 @@
  * live session state to the blob-office viewer (blob-office.html).
  *
  * Install:
- *   cp blob-office.ts ~/.config/opencode/plugins/
- *   cp package.json   ~/.config/opencode/plugins/
+ *   npx blob-office install
  *   # OpenCode runs `bun install` automatically at next startup
  */
 
@@ -37,6 +36,7 @@ export interface AgentState {
   color: number; // hue 0–360, derived from session id
   idleSince: number | null; // timestamp when subagent went idle (for cleanup)
   activityScale: number; // 1.0 = normal, up to 2.5 (based on files modified)
+  recentFiles: string[]; // basenames of recently touched files (padded with cap variants)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export const TOOL_STATUS: Record<string, AgentStatus> = {
 	bash: "running",
 	webfetch: "reading",
 	websearch: "reading",
-	task: "thinking",
+	task: "waiting",
 	todoread: "reading",
 	todowrite: "editing",
 };
@@ -83,7 +83,7 @@ export function toolLabel(tool: string): string {
 		bash: "💻 running",
 		webfetch: "🌐 fetching",
 		websearch: "🌐 searching",
-		task: "🤖 spawning",
+		task: "🤖 spawning…",
 		todoread: "📋 todos",
 		todowrite: "📋 updating",
 	};
@@ -124,6 +124,73 @@ export function getActivityScale(agentId: string): number {
 	return Math.min(Math.max(scale, 1.0), 2.5);
 }
 
+/** Generate capitalization variants of a filename to pad short lists for animation variety. */
+export function capVariants(name: string, maxVariants: number = 6): string[] {
+	const variants: string[] = [name];
+	const seen = new Set<string>([name]);
+
+	// Find indices of letters that can be toggled
+	const letterIndices: number[] = [];
+	for (let i = 0; i < name.length; i++) {
+		if (/[a-zA-Z]/.test(name[i])) letterIndices.push(i);
+	}
+	if (letterIndices.length === 0) return variants;
+
+	// Toggle single characters
+	for (const i of letterIndices) {
+		if (variants.length >= maxVariants) break;
+		const chars = [...name];
+		chars[i] = chars[i] === chars[i].toUpperCase()
+			? chars[i].toLowerCase()
+			: chars[i].toUpperCase();
+		const v = chars.join("");
+		if (!seen.has(v)) { seen.add(v); variants.push(v); }
+	}
+
+	// Toggle pairs for more variety
+	for (let a = 0; a < letterIndices.length && variants.length < maxVariants; a++) {
+		for (let b = a + 1; b < letterIndices.length && variants.length < maxVariants; b++) {
+			const chars = [...name];
+			for (const i of [letterIndices[a], letterIndices[b]]) {
+				chars[i] = chars[i] === chars[i].toUpperCase()
+					? chars[i].toLowerCase()
+					: chars[i].toUpperCase();
+			}
+			const v = chars.join("");
+			if (!seen.has(v)) { seen.add(v); variants.push(v); }
+		}
+	}
+
+	return variants;
+}
+
+/** Build the recentFiles list for an agent: basenames + cap-variant padding to ≥ minItems. */
+export function buildRecentFiles(agentId: string, minItems: number = 8): string[] {
+	const paths = agentFileActivity.get(agentId);
+	if (!paths || paths.size === 0) return [];
+
+	// Extract basenames, most-recent first (Set preserves insertion order)
+	const basenames = [...paths]
+		.map((p) => p.split(/[/\\]/).filter(Boolean).pop() ?? p)
+		.filter(Boolean);
+	// Deduplicate basenames (different paths can have the same filename)
+	const unique = [...new Set(basenames)];
+
+	if (unique.length >= minItems) return unique.slice(0, minItems);
+
+	// Pad with capitalization variants until we reach minItems
+	const result = [...unique];
+	const seen = new Set(result);
+	for (const name of unique) {
+		if (result.length >= minItems) break;
+		for (const v of capVariants(name)) {
+			if (result.length >= minItems) break;
+			if (!seen.has(v)) { seen.add(v); result.push(v); }
+		}
+	}
+	return result;
+}
+
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
@@ -145,10 +212,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 	const WS_BASE_PORT = 2727;
 	const WS_MAX_PORT_ATTEMPTS = 10;
-	const HTTP_BASE_PORT = 2626;
-	const HTTP_MAX_PORT_ATTEMPTS = 10;
 	let wsPort = WS_BASE_PORT;
-	let httpPort = HTTP_BASE_PORT;
 	const agents = new Map<string, AgentState>();
 	const clients = new Set<globalThis.WebSocket>();
 
@@ -222,6 +286,11 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	function updateAgent(id: string, patch: Partial<AgentState>) {
 		const a = agents.get(id);
 		if (!a) return;
+		// Skip if nothing actually changed
+		const changed = Object.keys(patch).some(
+			(k) => a[k as keyof AgentState] !== patch[k as keyof AgentState],
+		);
+		if (!changed) return;
 		Object.assign(a, patch, { since: Date.now() });
 		broadcast();
 	}
@@ -230,63 +299,71 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 	let browserOpened = false;
 	let serverWasAlreadyRunning = false;
-	let cachedHtml: string | null = null;
+	let cachedRawHtml: string | null = null;
 
 	async function getHtmlWithWsPort(injectedWsPort: number): Promise<string> {
-		if (cachedHtml) {
-			return cachedHtml.replace(
-				"window.BLOB_OFFICE_WS_PORT",
-				String(injectedWsPort),
-			);
-		}
+		if (!cachedRawHtml) {
+			// Find and read the HTML file — check multiple locations
+			const htmlPaths: string[] = [];
 
-		// Find and read the HTML file
-		const htmlPaths = [
-			`${process.env.HOME}/.config/opencode/plugins/blob-office.html`,
-			`${process.cwd()}/blob-office.html`,
-			`${process.env.HOME}/blob-office/index.html`,
-		];
+			// 1. Same directory as this .ts file (works for installed plugins)
+			const selfDir = new URL(".", import.meta.url).pathname;
+			htmlPaths.push(`${selfDir}blob-office.html`);
 
-		for (const htmlPath of htmlPaths) {
+			// 2. Try resolving from node_modules (installed via npm/bun)
 			try {
-				const file = Bun.file(htmlPath);
-				if (await file.exists()) {
-					let html = await file.text();
-					// Inject WS port before the first script tag
-					const injection = `<script>window.BLOB_OFFICE_WS_PORT = ${injectedWsPort};</script>`;
-					html = html.replace("<script>", injection + "\n<script>");
-					cachedHtml = html;
-					return html;
-				}
+				const pkgJson = import.meta.resolve("blob-office/package.json");
+				const pkgDir = new URL(".", pkgJson).pathname;
+				htmlPaths.push(`${pkgDir}blob-office.html`);
 			} catch {
-				// Try next path
+				// Not installed as npm package — OK, try fallbacks
 			}
+
+			// 3. Current working directory (local dev)
+			htmlPaths.push(`${process.cwd()}/blob-office.html`);
+
+			for (const htmlPath of htmlPaths) {
+				try {
+					const file = Bun.file(htmlPath);
+					if (await file.exists()) {
+						cachedRawHtml = await file.text();
+						break;
+					}
+				} catch {
+					// Try next path
+				}
+			}
+
+			if (!cachedRawHtml) throw new Error("Could not find blob-office.html");
 		}
 
-		throw new Error("Could not find blob-office.html");
+		// Always inject the WS port fresh into the raw (unmodified) HTML
+		const injection = `<script>window.BLOB_OFFICE_WS_PORT = ${injectedWsPort};</script>`;
+		return cachedRawHtml.replace("<script>", injection + "\n<script>");
 	}
 
 	async function openViewer(wsPortToUse: number) {
 		// Don't open browser if server was already running (from previous OpenCode session)
-		if (browserOpened || serverWasAlreadyRunning) return;
+		// or if running in a test/CI environment
+		if (browserOpened || serverWasAlreadyRunning || process.env.NODE_ENV === "test" || process.env.CI) return;
 		browserOpened = true;
 
-		// Get the HTTP URL to open (after HTTP server is started)
-		const httpUrl = `http://localhost:${httpPort}/`;
+		// Open the unified server URL (serves both HTML and WebSocket)
+		const viewerUrl = `http://localhost:${wsPortToUse}/`;
 
 		const platform = process.platform;
 		const cmd =
 			platform === "darwin"
-				? ["open", httpUrl]
+				? ["open", viewerUrl]
 				: platform === "win32"
-					? ["cmd", "/c", "start", "", httpUrl]
-					: ["xdg-open", httpUrl];
+					? ["cmd", "/c", "start", "", viewerUrl]
+					: ["xdg-open", viewerUrl];
 
 		try {
 			// Don't await - opening browser should never block the plugin
 			Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
 		} catch {
-			log("info", `Open viewer manually: http://localhost:${httpPort}/`);
+			log("info", `Open viewer manually: ${viewerUrl}`);
 		}
 	}
 
@@ -306,17 +383,9 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				type: "heartbeat",
 				timestamp: Date.now(),
 			});
-			// Also broadcast current state periodically to keep clients in sync
-			const snapshotMsg = JSON.stringify({
-				type: "snapshot",
-				agents: [...agents.values()],
-			});
 			for (const ws of clients) {
 				if (ws.readyState === WebSocket.OPEN) {
-					// Send heartbeat
 					ws.send(heartbeatMsg);
-					// Also send current state to ensure clients stay synced
-					ws.send(snapshotMsg);
 				}
 			}
 		}, 25000); // Heartbeat every 25 seconds
@@ -352,25 +421,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	console.log("[blob-office] Starting WebSocket server setup...");
 	diag("Starting WebSocket server setup...");
 	
-	// Find available HTTP port first (for serving HTML)
-	for (let httpAttempt = 0; httpAttempt < HTTP_MAX_PORT_ATTEMPTS; httpAttempt++) {
-		const tryHttpPort = HTTP_BASE_PORT + httpAttempt;
-		try {
-			const testServer = Bun.serve({
-				port: tryHttpPort,
-				fetch: () => new Response("test"),
-			});
-			testServer.stop();
-			httpPort = tryHttpPort;
-			console.log(`[blob-office] Found available HTTP port ${httpPort}`);
-			break;
-		} catch {
-			console.log(`[blob-office] HTTP port ${tryHttpPort} in use, trying next...`);
-			continue;
-		}
-	}
-
-	// Now find available WS port
+	// Find available port (serves both HTTP and WebSocket on the same port)
 	for (let portAttempt = 0; portAttempt < WS_MAX_PORT_ATTEMPTS; portAttempt++) {
 		const tryPort = WS_BASE_PORT + portAttempt;
 		console.log(`[blob-office] Attempting WS port ${tryPort}...`);
@@ -463,31 +514,47 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		startHeartbeat();
 		startIdleCleanup();
 
-		// Graceful shutdown - notify clients before server closes
-		const broadcastShutdown = () => {
+		// Forceful shutdown — kill everything immediately
+		const shutdown = () => {
+			// Notify clients (best-effort, don't wait)
 			const closingMsg = JSON.stringify({ type: "serverclosing", reason: "opencode_exit" });
 			for (const ws of clients) {
 				try {
 					if (ws.readyState === WebSocket.OPEN) {
 						ws.send(closingMsg);
+						ws.close();
 					}
 				} catch {}
 			}
+			clients.clear();
+
+			// Stop the HTTP/WS server
+			if (wss) {
+				try { wss.stop(true); } catch {} // true = force close
+				wss = null;
+			}
+
+			// Clear intervals so nothing keeps the process alive
+			if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+			if (idleCleanupInterval) { clearInterval(idleCleanupInterval); idleCleanupInterval = null; }
+			if (broadcastTimeout) { clearTimeout(broadcastTimeout); broadcastTimeout = null; }
 		};
 
-		process.on("beforeExit", broadcastShutdown);
+		process.on("beforeExit", shutdown);
+		process.on("SIGINT", shutdown);
+		process.on("SIGTERM", shutdown);
+		process.on("exit", shutdown);
 
 		const wsUrl = `ws://localhost:${wsPort}/ws`;
-		const httpUrl = `http://localhost:${httpPort}/`;
-		const viewerUrl = httpUrl;
-		log("info", `WebSocket server running on ${wsUrl}, HTTP viewer at ${httpUrl}`);
+		const viewerUrl = `http://localhost:${wsPort}/`;
+		log("info", `Server running on port ${wsPort} (viewer: ${viewerUrl}, ws: ${wsUrl})`);
 		console.log("[blob-office] About to call showToast...");
 		
 		// Make showToast truly non-blocking with a timeout
 		const toastPromise = client?.tui?.showToast?.({
 			body: {
 				title: "Blob Office",
-				message: `WS: ${wsPort}, HTTP: ${httpPort}`,
+				message: `Viewer: localhost:${wsPort}`,
 				variant: "info",
 				duration: 8000,
 			},
@@ -566,18 +633,20 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				callID: string;
 			};
 
-			// Track file modifications for activity scaling
-			if (["write", "edit", "multiedit"].includes(tool.toLowerCase())) {
+			// Track file activity from any tool that touches files
+			const FILE_TOOLS = ["write", "edit", "multiedit", "read", "glob", "grep", "ls"];
+			if (FILE_TOOLS.includes(tool.toLowerCase())) {
 				try {
 					const toolInput = input as any;
-					const filePath = toolInput.filePath || toolInput.path;
+					const filePath = toolInput.filePath || toolInput.path || toolInput.pattern;
 
-					if (filePath && !isIgnored(filePath)) {
+					if (filePath && typeof filePath === "string" && !isIgnored(filePath)) {
 						recordFileActivity(sessionID, filePath);
 
 						if (agents.has(sessionID)) {
 							const agent = agents.get(sessionID)!;
 							agent.activityScale = getActivityScale(sessionID);
+							agent.recentFiles = buildRecentFiles(sessionID);
 							broadcast();
 						}
 					}
@@ -644,9 +713,19 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 						color: hueFromId(id),
 						idleSince: null,
 						activityScale: 1.0,
+						recentFiles: [],
 					});
 
 					log("info", `Agent added, total agents: ${agents.size}`);
+
+					// Subagent born → parent transitions from "spawning" to "supervising"
+					if (isSubAgent && parentID && agents.has(parentID)) {
+						updateAgent(parentID, {
+							status: "waiting",
+							message: "👀 supervising",
+						});
+					}
+
 					broadcast();
 					openViewer(wsPort);
 					break;
@@ -683,6 +762,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 							color: hueFromId(id),
 							idleSince: null,
 							activityScale: 1.0,
+							recentFiles: [],
 						});
 						log(
 							"info",
@@ -719,10 +799,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 							updatePatch.tool = null;
 							updatePatch.message = null;
 						} else {
-							// Only show "resumed" for truly resumed idle/waiting main agents
-							updatePatch.status = "idle";
-							updatePatch.tool = null;
-							updatePatch.message = "↩️ resumed";
+							// Already idle main agent — only update title if changed, don't spam "resumed"
 						}
 
 						if (title) {
