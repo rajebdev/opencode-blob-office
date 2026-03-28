@@ -289,6 +289,10 @@ const STATUS_CFG = {
   error:    { pulse: 1.5, radius: 31, opacity: 255, label: "❌", ring: true  },
 };
 
+// Magnetic repulsion - prevents blobs from stacking on top of each other
+const REPULSION_STRENGTH = 0.15;  // Force multiplier
+const REPULSION_FALLOFF = 2;       // Inverse square falloff
+
 // ── Radial positioning ─────────────────────────────────────────────────────
 
 // Track agent positions for radial layout - with stability buffer
@@ -380,6 +384,8 @@ class Sprite {
     this.ty = y;    // target y
     this.vx = 0;    // velocity x for spring physics
     this.vy = 0;    // velocity y for spring physics
+    this.repulsionX = 0;
+    this.repulsionY = 0;
     this.hue = hue;
     this.isSubagent = isSubagent;
     this.phase = Math.random() * Math.PI * 2;  // pulse phase offset
@@ -1044,6 +1050,61 @@ new p5((p) => {
     const mainAgents = agentList.filter(agent => !agent.parentID);
     const subAgents = agentList.filter(agent => agent.parentID);
 
+    // ── Initialize repulsion offsets for all agents ───────────────────────────
+    for (const agent of mainAgents) {
+      if (agent._sprite) {
+        agent._sprite.repulsionX = 0;
+        agent._sprite.repulsionY = 0;
+      }
+    }
+
+    // ── Apply magnetic repulsion between all agent pairs ─────────────────────
+    const agentsWithSprites = mainAgents
+      .filter(a => a._sprite)
+      .map(a => ({ agent: a, sprite: a._sprite }));
+
+    for (let i = 0; i < agentsWithSprites.length; i++) {
+      const a1 = agentsWithSprites[i];
+      const r1 = a1.sprite.currentRadius;
+
+      for (let j = i + 1; j < agentsWithSprites.length; j++) {
+        const a2 = agentsWithSprites[j];
+        const r2 = a2.sprite.currentRadius;
+
+        // Distance between current positions
+        const dx = a1.sprite.x - a2.sprite.x;
+        const dy = a1.sprite.y - a2.sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Minimum distance = sum of radii (with small buffer for natural overlap)
+        const minDist = (r1 + r2) * 0.9;
+
+        if (dist < minDist && dist > 0) {
+          // Calculate repulsion based on overlap and sizes
+          const overlap = minDist - dist;
+          const combinedRadii = r1 + r2;
+
+          // Scale repulsion by combined sizes (activityScale affects display radius)
+          const scale1 = a1.agent.activityScale || 1.0;
+          const scale2 = a2.agent.activityScale || 1.0;
+          const sizeFactor = (scale1 + scale2) / 2;
+
+          // Repulsion strength with inverse falloff
+          const repulsionForce = (overlap / combinedRadii) * REPULSION_STRENGTH * sizeFactor;
+
+          // Direction vector
+          const nx = dx / dist;
+          const ny = dy / dist;
+
+          // Apply equal and opposite forces
+          a1.sprite.repulsionX += nx * repulsionForce;
+          a1.sprite.repulsionY += ny * repulsionForce;
+          a2.sprite.repulsionX -= nx * repulsionForce;
+          a2.sprite.repulsionY -= ny * repulsionForce;
+        }
+      }
+    }
+
     // ── Draw main agents ───────────────────────────────────────────────────
     for (const agent of mainAgents) {
       try {
@@ -1095,8 +1156,14 @@ new p5((p) => {
         const stiffness = 0.03;
         const damping = 0.85;
 
-        const dxPos = sprite.tx - sprite.x;
-        const dyPos = sprite.ty - sprite.y;
+        // Apply repulsion as an offset to the target position
+        const repulsionX = Number.isFinite(sprite.repulsionX) ? sprite.repulsionX : 0;
+        const repulsionY = Number.isFinite(sprite.repulsionY) ? sprite.repulsionY : 0;
+        const effectiveTx = sprite.tx + repulsionX * 10;
+        const effectiveTy = sprite.ty + repulsionY * 10;
+
+        const dxPos = effectiveTx - sprite.x;
+        const dyPos = effectiveTy - sprite.y;
 
         sprite.vx = sprite.vx * damping + dxPos * stiffness;
         sprite.vy = sprite.vy * damping + dyPos * stiffness;
@@ -1104,17 +1171,17 @@ new p5((p) => {
         sprite.x += sprite.vx;
         sprite.y += sprite.vy;
 
-      // Use smoothly interpolated visual values (no blending between configs)
-      const pulse = Math.sin(now * sprite.currentPulse * Math.PI * 2 + sprite.phase);
-      const radius = sprite.currentRadius + pulse * 3;
+        // Use smoothly interpolated visual values (no blending between configs)
+        const pulse = Math.sin(now * sprite.currentPulse * Math.PI * 2 + sprite.phase);
+        const radius = sprite.currentRadius + pulse * 3;
 
-      // Fade-out alpha for departing agents
-      let fadeAlpha = 1.0;
-      if (agent._fadeOutStart) {
-        const fadeProgress = (Date.now() - agent._fadeOutStart) / 1000;
-        fadeAlpha = Math.max(0, 1.0 - fadeProgress);
-      }
-      const alpha = sprite.currentAlpha * fadeAlpha;
+        // Fade-out alpha for departing agents
+        let fadeAlpha = 1.0;
+        if (agent._fadeOutStart) {
+          const fadeProgress = (Date.now() - agent._fadeOutStart) / 1000;
+          fadeAlpha = Math.max(0, 1.0 - fadeProgress);
+        }
+        const alpha = sprite.currentAlpha * fadeAlpha;
 
       // Status-specific effects
       const isError = agent.status === "error";
@@ -1356,17 +1423,17 @@ new p5((p) => {
         // Active subagents orbit farther out, idle ones drift closer to parent
         const isActiveStatus = ["thinking", "editing", "reading", "running", "waiting"].includes(subagent.status);
         const parentIsReading = parent.status === "reading";
-        
+
         // Target orbit radius: closer when idle or when parent is reading from them
         const closeRadius = 45 * ZOOM;   // Close orbit (idle/parent reading)
         const farRadius = 90 * ZOOM;    // Far orbit (active)
-        
+
         if (isIdle || parentIsReading) {
           sprite.targetOrbitRadius = closeRadius;
         } else if (isActiveStatus) {
           sprite.targetOrbitRadius = farRadius;
         }
-        
+
         // Smooth interpolation toward target orbit radius
         sprite.currentOrbitRadius += (sprite.targetOrbitRadius - sprite.currentOrbitRadius) * 0.03;
         sprite.orbitRadius = sprite.currentOrbitRadius;
