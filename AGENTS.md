@@ -12,8 +12,8 @@ Blob Office is an OpenCode plugin that visualizes AI coding sessions as animated
 # No build step — TypeScript runs directly via Bun
 # OpenCode auto-runs `bun install` when plugin loads
 
-# Install plugin into ~/.config/opencode/plugins/
-bash install.sh
+# Install plugin via OpenCode's plugin system
+bunx opencode-blob-office install
 
 # Start the mock WebSocket server (for local dev/testing)
 bun run mock-server            # or: bun run blob-office-mock-server.ts 2727
@@ -138,7 +138,7 @@ afterEach(() => {
 │   ├── integration/            # bun:test — websocket.test.ts
 │   └── e2e/                    # Playwright — simple.spec.ts, viewer.spec.ts, etc.
 ├── playwright.config.ts        # Playwright config (chromium, sequential, global setup)
-├── install.sh                  # Setup script for ~/.config/opencode/plugins/
+├── install.sh                  # Legacy setup script (use bunx opencode-blob-office install instead)
 └── package.json                # ES module, scripts, peer/dev dependencies
 ```
 
@@ -188,7 +188,7 @@ afterEach(() => {
 
 1. Edit `WS_BASE_PORT` in `blob-office.ts`
 2. Edit `WS_URL` in `blob-office.html`
-3. Re-run `bash install.sh`
+3. Re-run `bunx opencode-blob-office install` to reinstall the plugin
 
 ## Dependencies
 

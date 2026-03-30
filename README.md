@@ -1,6 +1,6 @@
 # Blob Office
 
-> **Attribution**: This project is a fork of [Session Character Visualizer](https://github.com/Caffa/Session-Character-Visualizer) by [@Caffa](https://github.com/Caffa), who created the original concept, plugin architecture, and p5.js blob renderer. The `opencode-blob-office` npm package builds on that foundation.
+> **Attribution**: This project was inspired by the original Session Character Visualizer concept by [@Caffa](https://github.com/Caffa). The `opencode-blob-office` npm package is a complete TypeScript rewrite designed specifically for OpenCode's plugin system.
 
 ![Demo](media-previews/lifecycle.gif)
 
@@ -18,6 +18,10 @@ Each session appears as a colored blob with speech bubbles, status animations, a
 
 ## Installation
 
+### Preferred Method (Recommended)
+
+Install via OpenCode's plugin system:
+
 ```bash
 bunx opencode-blob-office install
 ```
@@ -28,15 +32,17 @@ Or with npx:
 npx opencode-blob-office install
 ```
 
-Restart OpenCode. The viewer opens automatically in your browser at `localhost:2727`.
+This will automatically register the plugin in your OpenCode configuration. Restart OpenCode to activate the plugin.
 
-### Manual
+### Legacy Installation Method
 
 ```bash
 git clone https://github.com/cbrunnkvist/opencode-blob-office.git
 cd opencode-blob-office
 bash install.sh
 ```
+
+> **Warning**: The legacy installation method copies files directly to your plugins directory and does not register the plugin in your OpenCode configuration. For best results and automatic updates, use the preferred installation method above.
 
 ---
 

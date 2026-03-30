@@ -1,12 +1,12 @@
 /**
  * blob-office.ts
- * Global OpenCode plugin — drop into ~/.config/opencode/plugins/
+ * Global OpenCode plugin — installed via OpenCode's plugin system
  *
  * Starts a WebSocket server on ws://localhost:2727 and broadcasts
  * live session state to the blob-office viewer (blob-office.html).
  *
  * Install:
- *   npx blob-office install
+ *   bunx opencode-blob-office install
  *   # OpenCode runs `bun install` automatically at next startup
  */
 

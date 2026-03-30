@@ -29,22 +29,6 @@ After installation:
 async function install() {
 	console.log("📦 Installing Blob Office plugin...\n");
 
-	await mkdir(PLUGIN_DIR, { recursive: true });
-
-	const srcDir = join(__dirname, "..");
-	const files = [
-		{ src: join(srcDir, "blob-office.ts"), dest: join(PLUGIN_DIR, "blob-office.ts") },
-	];
-
-	for (const file of files) {
-		if (!existsSync(file.src)) {
-			console.error(`❌ Source file not found: ${file.src}`);
-			process.exit(1);
-		}
-		await cp(file.src, file.dest);
-		console.log(`✓ Copied ${file.dest}`);
-	}
-
 	let config = { plugin: [] };
 	if (existsSync(OPENCODE_CONFIG)) {
 		try {
@@ -59,8 +43,8 @@ async function install() {
 		}
 	}
 
-	if (!config.plugin.includes("blob-office")) {
-		config.plugin.push("blob-office");
+	if (!config.plugin.includes("opencode-blob-office")) {
+		config.plugin.push("opencode-blob-office");
 		await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
 		console.log(`✓ Registered plugin in opencode.json`);
 	} else {
@@ -68,6 +52,7 @@ async function install() {
 	}
 
 	console.log(`\n✅ Blob Office installed successfully!\n`);
+	console.log(`   OpenCode will automatically install the npm package on startup.`);
 	console.log(`   The viewer opens automatically when OpenCode starts.`);
 	console.log(`   WebSocket will run on ws://localhost:2727 (or next available port)\n`);
 	console.log(`   Restart OpenCode to activate the plugin.\n`);
@@ -76,18 +61,11 @@ async function install() {
 async function uninstall() {
 	console.log("🗑️  Uninstalling Blob Office plugin...\n");
 
-	const files = [
-		join(PLUGIN_DIR, "blob-office.ts"),
-	];
-
-	let removedAny = false;
-
-	for (const file of files) {
-		if (existsSync(file)) {
-			await rm(file);
-			console.log(`✓ Removed ${file}`);
-			removedAny = true;
-		}
+	// Remove old local plugin file if it exists
+	const oldPluginFile = join(PLUGIN_DIR, "blob-office.ts");
+	if (existsSync(oldPluginFile)) {
+		await rm(oldPluginFile);
+		console.log(`✓ Removed ${oldPluginFile}`);
 	}
 
 	// Remove plugin registration from opencode.json
@@ -96,23 +74,26 @@ async function uninstall() {
 			const raw = await readFile(OPENCODE_CONFIG, "utf-8");
 			const config = JSON.parse(raw);
 			if (Array.isArray(config.plugin)) {
-				const idx = config.plugin.indexOf("blob-office");
+				// Remove opencode-blob-office (npm package)
+				const idx = config.plugin.indexOf("opencode-blob-office");
 				if (idx !== -1) {
 					config.plugin.splice(idx, 1);
-					await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
-					console.log(`✓ Deregistered plugin from opencode.json`);
+					console.log(`✓ Deregistered opencode-blob-office from opencode.json`);
 				}
+				// Also remove old blob-office entry if it exists
+				const oldIdx = config.plugin.indexOf("blob-office");
+				if (oldIdx !== -1) {
+					config.plugin.splice(oldIdx, 1);
+					console.log(`✓ Deregistered legacy blob-office from opencode.json`);
+				}
+				await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
 			}
 		} catch {
 			// Ignore parse errors
 		}
 	}
 
-	if (!removedAny) {
-		console.log("ℹ️  No Blob Office files found to remove.\n");
-	} else {
-		console.log(`\n✅ Blob Office uninstalled successfully!\n`);
-	}
+	console.log(`\n✅ Blob Office uninstalled successfully!\n`);
 	console.log(`   Restart OpenCode to complete removal.\n`);
 }
 
