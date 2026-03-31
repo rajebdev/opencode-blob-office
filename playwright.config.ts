@@ -6,6 +6,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  /* Ignore files that use Bun-specific imports */
+  testIgnore: ['**/viewer.spec.ts', '**/setup.ts'],
   /* Run tests in files in parallel */
   fullyParallel: false, // Sequential for mock server stability
   /* Fail the build on CI if you accidentally left test.only in the source code. */

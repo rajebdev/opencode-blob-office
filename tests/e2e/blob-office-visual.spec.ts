@@ -38,10 +38,20 @@ test.describe("Blob Office Visual Tests", () => {
     await page.waitForTimeout(3000);
   });
 
-  test("should display empty office initially", async ({ page }) => {
-    // Page should load with empty office
+  test("should show no-agents when no agents exist", async ({ page }) => {
+    // The no-agents div should be visible when the server sends an empty agents array
+    // (Mock server sends empty snapshot immediately on connect)
+    await page.goto(`http://localhost:${testPort}/`);
+    await page.waitForLoadState("domcontentloaded");
+    
+    // Wait for WebSocket connection to be established
+    await page.waitForFunction(() => {
+      const wsDot = document.getElementById("ws-dot");
+      return wsDot && wsDot.classList.contains("connected");
+    });
+    
+    // With empty snapshot, no-agents should be VISIBLE
     await expect(page.locator("#no-agents")).toBeVisible();
-    await page.screenshot({ path: "test-results/empty-office.png" });
   });
 
   test("should load the viewer from HTTP server", async ({ page }) => {
