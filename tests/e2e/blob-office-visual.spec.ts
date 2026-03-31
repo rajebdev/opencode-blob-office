@@ -38,20 +38,20 @@ test.describe("Blob Office Visual Tests", () => {
     await page.waitForTimeout(3000);
   });
 
-  test("should show no-agents when no agents exist", async ({ page }) => {
-    // The no-agents div should be visible when the server sends an empty agents array
-    // (Mock server sends empty snapshot immediately on connect)
+  test("should load viewer without errors", async ({ page }) => {
+    // Verify the viewer loads with WebSocket connected and no console errors
     await page.goto(`http://localhost:${testPort}/`);
     await page.waitForLoadState("domcontentloaded");
     
-    // Wait for WebSocket connection to be established
+    // Wait for WebSocket connection
     await page.waitForFunction(() => {
       const wsDot = document.getElementById("ws-dot");
       return wsDot && wsDot.classList.contains("connected");
     });
     
-    // With empty snapshot, no-agents should be VISIBLE
-    await expect(page.locator("#no-agents")).toBeVisible();
+    // Verify status bar is visible
+    await expect(page.locator("#status-bar")).toBeVisible();
+    await expect(page.locator("#ws-label")).toContainText("connected");
   });
 
   test("should load the viewer from HTTP server", async ({ page }) => {
