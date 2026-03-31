@@ -34,7 +34,7 @@ interface TestReport {
 const TEST_DIRS = {
 	unit: "tests/unit",
 	integration: "tests/integration",
-	e2e: "tests/e2e",
+	// e2e tests are Playwright tests - run them separately with: bun run test:visual
 };
 
 const REPORTS_DIR = "tests/reports";
