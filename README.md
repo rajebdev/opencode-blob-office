@@ -34,16 +34,6 @@ npx opencode-blob-office install
 
 This will automatically register the plugin in your OpenCode configuration. Restart OpenCode to activate the plugin.
 
-### Legacy Installation Method
-
-```bash
-git clone https://github.com/cbrunnkvist/opencode-blob-office.git
-cd opencode-blob-office
-bash install.sh
-```
-
-> **Warning**: The legacy installation method copies files directly to your plugins directory and does not register the plugin in your OpenCode configuration. For best results and automatic updates, use the preferred installation method above.
-
 ---
 
 ## Features
@@ -93,6 +83,9 @@ blob-office-mock-server.ts  Mock server for testing
 ## Development
 
 ```bash
+# Build the plugin (required before local development)
+bun run build
+
 # Run all tests
 bun run test
 
