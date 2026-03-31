@@ -103,6 +103,15 @@ const IGNORE_PATTERNS = [
 	".DS_Store",
 ];
 
+// Active states that should NOT be overwritten with "resumed"
+const ACTIVE_STATES: AgentStatus[] = [
+	"thinking",
+	"editing",
+	"reading",
+	"running",
+	"waiting",
+];
+
 export const agentFileActivity = new Map<string, Set<string>>();
 
 export function isIgnored(filePath: string): boolean {
@@ -236,8 +245,11 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 	// Helper to show system notification on macOS (fire-and-forget)
 	const notify = (title: string, message: string): void => {
+		// Escape double quotes to prevent shell injection
+		const safeTitle = title.replace(/"/g, '\\"');
+		const safeMessage = message.replace(/"/g, '\\"');
 		// Don't await - notifications should never block the plugin
-		$`osascript -e 'display notification "${message}" with title "${title}"'`.catch(() => {
+		$`osascript -e 'display notification "${safeMessage}" with title "${safeTitle}"'`.catch(() => {
 			// Silently fail if notifications aren't available
 		});
 	};
@@ -312,7 +324,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 			// 2. Try resolving from node_modules (installed via npm/bun)
 			try {
-				const pkgJson = import.meta.resolve("blob-office/package.json");
+				const pkgJson = import.meta.resolve("opencode-blob-office/package.json");
 				const pkgDir = new URL(".", pkgJson).pathname;
 				htmlPaths.push(`${pkgDir}blob-office.html`);
 			} catch {
@@ -418,14 +430,12 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		}, 1000); // Check every second
 	}
 
-	console.log("[blob-office] Starting WebSocket server setup...");
 	diag("Starting WebSocket server setup...");
 	
 	// Find available port (serves both HTTP and WebSocket on the same port)
 	for (let portAttempt = 0; portAttempt < WS_MAX_PORT_ATTEMPTS; portAttempt++) {
 		const tryPort = WS_BASE_PORT + portAttempt;
-		console.log(`[blob-office] Attempting WS port ${tryPort}...`);
-			diag(`Attempting WS port ${tryPort}...`);
+		diag(`Attempting WS port ${tryPort}...`);
 		try {
 			wss = Bun.serve({
 				port: tryPort,
@@ -489,29 +499,30 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 									`Merged ${msg.agents.length} agents from client, total: ${agents.size}`,
 								);
 								broadcast();
-							}
-						} catch {
 						}
-					},
+					} catch (err) {
+						log("warn", `Failed to process WebSocket message: ${(err as Error).message}`);
+					}
+				},
 				},
 			});
 			wsPort = tryPort;
-			isServerInstance = true;
-			console.log(`[blob-office] Server started successfully on port ${tryPort}`);
-			break;
-		} catch (err) {
-			console.log(`[blob-office] Port ${tryPort} failed:`, (err as Error).message);
-			if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-				log("warn", `Port ${tryPort} in use, trying next...`);
-				continue;
-			}
-			throw err;
+		isServerInstance = true;
+		diag(`Server started successfully on port ${tryPort}`);
+		break;
+	} catch (err) {
+		diag(`Port ${tryPort} failed: ${(err as Error).message}`);
+		if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+			log("warn", `Port ${tryPort} in use, trying next...`);
+			continue;
 		}
+		throw err;
 	}
+}
 
-	if (isServerInstance) {
-		console.log("[blob-office] Server instance - setting up heartbeat and cleanup...");
-		startHeartbeat();
+if (isServerInstance) {
+	diag("Server instance - setting up heartbeat and cleanup...");
+	startHeartbeat();
 		startIdleCleanup();
 
 		// Forceful shutdown — kill everything immediately
@@ -548,7 +559,6 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		const wsUrl = `ws://localhost:${wsPort}/ws`;
 		const viewerUrl = `http://localhost:${wsPort}/`;
 		log("info", `Server running on port ${wsPort} (viewer: ${viewerUrl}, ws: ${wsUrl})`);
-		console.log("[blob-office] About to call showToast...");
 		
 		// Make showToast truly non-blocking with a timeout
 		const toastPromise = client?.tui?.showToast?.({
@@ -566,18 +576,18 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				toastPromise,
 				new Promise((_, reject) => setTimeout(() => reject(new Error("Toast timeout")), 2000))
 			]).then(() => {
-				console.log("[blob-office] showToast completed");
+				diag("showToast completed");
 			}).catch((e) => {
-				console.log("[blob-office] showToast failed or timed out:", e);
+				diag(`showToast failed or timed out: ${e}`);
 			});
 		} else {
-			console.log("[blob-office] showToast not available");
+			diag("showToast not available");
 		}
 		
-		console.log(`[blob-office] WebSocket: ${wsUrl}`);
-		console.log(`[blob-office] Open viewer: ${viewerUrl}`);
+		diag(`WebSocket: ${wsUrl}`);
+		diag(`Open viewer: ${viewerUrl}`);
 	} else {
-		console.log("[blob-office] No server - connecting as client...");
+		diag("No server - connecting as client...");
 		log("warn", "No available port found, connecting to existing server as client");
 		serverWasAlreadyRunning = true;
 		const wsUrl = `ws://localhost:${WS_BASE_PORT}`;
@@ -610,7 +620,8 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 						}
 					}
 				}
-			} catch {
+			} catch (err) {
+				log("warn", `Failed to process sync message: ${(err as Error).message}`);
 			}
 		};
 
@@ -619,7 +630,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		};
 	}
 
-	console.log("[blob-office] Plugin initialization COMPLETE, returning hooks");
+	diag("Plugin initialization COMPLETE, returning hooks");
 
 	// ── Hooks ─────────────────────────────────────────────────────────────────
 
@@ -774,15 +785,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 						const existing = agents.get(id)!;
 						const isNewSession = existing.message === "✨ created";
 
-						// Active states that should NOT be overwritten with "resumed"
-						const activeStates: AgentStatus[] = [
-							"thinking",
-							"editing",
-							"reading",
-							"running",
-							"waiting",
-						];
-						const isActive = activeStates.includes(existing.status);
+						const isActive = ACTIVE_STATES.includes(existing.status);
 
 						// Sub-agents should never show "resumed" - they just show status indicators
 						const isSubAgent = existing.parentID !== null;
