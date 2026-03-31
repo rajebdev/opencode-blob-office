@@ -2,59 +2,47 @@
 
 Guidelines for AI agents working on this OpenCode visualization plugin.
 
+> **Fork Status**: This repository is a fork of the original Session Character Visualizer concept by [@Caffa](https://github.com/Caffa). This fork (`cbrunnkvist/opencode-blob-office`) is intended to be the **final, canonical version** and will continue to evolve independently. We do not intend to merge changes back upstream.
+
 ## Project Overview
 
-Blob Office is an OpenCode plugin that visualizes AI coding sessions as animated characters in a virtual office. The plugin runs in Bun, communicates over WebSocket, and renders via p5.js in a browser viewer.
+Blob Office is an OpenCode plugin that visualizes AI coding sessions as animated blob characters in a virtual office. Runs in Bun, communicates over WebSocket, renders via p5.js.
 
-## Build & Development Commands
+## Build & Test Commands
 
 ```bash
 # No build step — TypeScript runs directly via Bun
-# OpenCode auto-runs `bun install` when plugin loads
-
-# Install plugin via OpenCode's plugin system
+# Install via OpenCode's plugin system
 bunx opencode-blob-office install
 
-# Start the mock WebSocket server (for local dev/testing)
-bun run mock-server            # or: bun run blob-office-mock-server.ts 2727
-```
+# Start mock WebSocket server for local dev/testing
+bun run mock-server
 
-## Test Commands
-
-```bash
-# All tests (unit + integration + e2e via custom runner)
-bun run test                   # → bun tests/run-tests.ts
-
-# Single suite
+# Tests
+bun run test                   # All tests (unit + integration + e2e)
 bun run test:unit              # Unit tests only (bun:test)
-bun run test:integration       # Integration tests only (bun:test)
-bun run test:e2e               # E2E tests only (bun:test runner)
+bun run test:integration       # Integration tests only
+bun run test:e2e               # E2E tests only
+bun test tests/unit/helpers.test.ts    # Single test file
 
-# Run a single test file directly
-bun test tests/unit/helpers.test.ts
-bun test tests/integration/websocket.test.ts
-
-# Playwright visual/E2E tests (separate from the bun test runner)
-bun run test:visual            # playwright test (headless)
-bun run test:visual:headed     # playwright test --headed
-bun run test:visual:ui         # playwright test --ui (interactive)
-bun run test:states            # playwright test tests/e2e/state-capture.spec.ts
-
-# Watch mode
-bun run test:watch
+# Playwright visual tests
+bun run test:visual            # Headless
+bun run test:visual:headed     # With browser window
+bun run test:visual:ui         # Interactive UI mode
+bun run test:watch             # Watch mode
 ```
 
-Unit/integration tests use `bun:test` (`describe`/`it`/`expect`). Playwright E2E tests use `@playwright/test`. The mock server (`blob-office-mock-server.ts`) starts automatically via Playwright's `globalSetup` for visual tests.
+Unit/integration tests use `bun:test` (`describe`/`it`/`expect`). Playwright E2E tests use `@playwright/test`. The mock server starts automatically via Playwright's `globalSetup`.
 
 ## Code Style Guidelines
 
-### TypeScript (blob-office.ts)
+### TypeScript
 
 - **Runtime**: Bun (not Node.js) — use Bun APIs (`Bun.serve()`, `Bun.write()`)
 - **Module system**: ES modules (`"type": "module"` in package.json)
-- **Indentation**: Tabs (not spaces)
-- **Quotes**: Single quotes for strings (double quotes acceptable in JSDoc/comments)
-- **Semicolons**: Required at end of statements
+- **Indentation**: Tabs
+- **Quotes**: Single quotes (double quotes acceptable in JSDoc/comments)
+- **Semicolons**: Required
 - **Trailing commas**: Use in multi-line arrays/objects
 - **Types**: Explicit types for all function params and return values
 
@@ -67,11 +55,9 @@ import type { AgentState } from "./blob-office.ts";
 
 // Node/Bun built-ins
 import { spawn } from "child_process";
-import { existsSync, mkdirSync } from "fs";
 
 // Local imports — use relative paths with .ts extension
 import { hueFromId, folderName } from "../../blob-office.ts";
-import { createMockPlugin } from "../mocks/mock-opencode.ts";
 ```
 
 - Use `import type` for type-only imports
@@ -80,19 +66,16 @@ import { createMockPlugin } from "../mocks/mock-opencode.ts";
 
 ### Naming Conventions
 
-- `PascalCase` — types, interfaces, classes (`AgentState`, `BlobOfficeMockServer`, `Plugin`)
-- `camelCase` — functions, variables, parameters (`hueFromId`, `toolStatus`, `syncWs`)
-- `UPPER_SNAKE_CASE` — constants and config objects (`TOOL_STATUS`, `IGNORE_PATTERNS`, `BROADCAST_DEBOUNCE_MS`)
+- `PascalCase` — types, interfaces, classes (`AgentState`, `BlobOfficeMockServer`)
+- `camelCase` — functions, variables, parameters (`hueFromId`, `toolStatus`)
+- `UPPER_SNAKE_CASE` — constants and config (`TOOL_STATUS`, `IGNORE_PATTERNS`)
 
 ### Section Comments
-
-Use decorative section headers to organize code:
 
 ```typescript
 // ─── Types ────────────────────────────────────────────────────────────────────
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 // ─── Plugin ───────────────────────────────────────────────────────────────────
-// ─── Mock Server ──────────────────────────────────────────────────────────────
 ```
 
 ### Code Patterns
@@ -102,19 +85,18 @@ Use decorative section headers to organize code:
 - **Type assertions**: Use `as Type` sparingly; prefer type guards
 - **Record types**: Use `Record<K, V>` for key-value mappings
 - **Async/await**: Use for all async operations
-- **Export**: Export types and pure functions from `blob-office.ts` for test access
 
 ### Error Handling
 
 ```typescript
-// Silently fail for non-critical operations (notifications, logging, etc.)
+// Silently fail for non-critical operations
 try {
   await someOptionalOperation();
 } catch {
-  // Ignore — OK for fire-and-forget operations
+  // Ignore — OK for fire-and-forget
 }
 
-// For test cleanup, use afterEach to stop servers
+// Test cleanup
 afterEach(() => {
   if (server) { server.stop(); server = null; }
 });
@@ -122,33 +104,20 @@ afterEach(() => {
 
 ## Architecture
 
-### File Structure
+### Key Files
 
-```
-├── blob-office.ts              # Main plugin — exports types, helpers, Plugin
-├── blob-office.html            # Browser viewer — p5.js, WebSocket client
-├── blob-office-mock-server.ts  # Mock WS server for testing (BlobOfficeMockServer class)
-├── blob-office-test.ts         # Diagnostic/progressive test plugin
-├── bin/blob-office.js          # CLI entry point
-├── scenarios/index.ts          # Pre-built test scenarios (lifecycle, multi-agent, etc.)
-├── tests/
-│   ├── run-tests.ts            # Custom test runner with report generation
-│   ├── mocks/mock-opencode.ts  # Mock OpenCode plugin environment
-│   ├── unit/                   # bun:test — helpers.test.ts, plugin-logic.test.ts
-│   ├── integration/            # bun:test — websocket.test.ts
-│   └── e2e/                    # Playwright — simple.spec.ts, viewer.spec.ts, etc.
-├── playwright.config.ts        # Playwright config (chromium, sequential, global setup)
-├── install.sh                  # Legacy setup script (use bunx opencode-blob-office install instead)
-└── package.json                # ES module, scripts, peer/dev dependencies
-```
+- `blob-office.ts` — Main plugin, exports types/helpers, serves HTML + WebSocket
+- `blob-office.html` — Browser viewer, p5.js canvas, WebSocket client
+- `blob-office-mock-server.ts` — Mock WS server for testing
+- `tests/` — Unit (bun:test), integration, and Playwright E2E tests
 
 ### Plugin Lifecycle
 
 1. Plugin loads via OpenCode's plugin system (`BlobOfficePlugin` export)
-2. Attempts to start server on port 2727 (scans up to 10 ports) — serves both HTML viewer and WebSocket (`/ws`)
+2. Starts server on port 2727 (scans up to 10 ports), serves HTML and WebSocket (`/ws`)
 3. If port taken, connects as client to existing server
 4. Listens to OpenCode events via hooks
-5. Broadcasts agent state updates to connected browser viewers
+5. Broadcasts agent state updates to browser viewers
 
 ### Key Hooks
 
@@ -169,7 +138,7 @@ afterEach(() => {
 { type: "full_sync", agents: AgentState[] }
 ```
 
-## Adding New Features
+## Adding Features
 
 ### Add support for a new OpenCode tool
 
@@ -182,38 +151,24 @@ afterEach(() => {
    newtool: "🔍 searching",
    ```
 3. Add test cases in `tests/unit/helpers.test.ts`
-4. Update viewer's `STATUS_CFG` in `blob-office.html` if new animation needed
-
-### Change the WebSocket port
-
-1. Edit `WS_BASE_PORT` in `blob-office.ts`
-2. Edit `WS_URL` in `blob-office.html`
-3. Re-run `bunx opencode-blob-office install` to reinstall the plugin
+4. Update `STATUS_CFG` in `blob-office.html` if new animation needed
 
 ## Dependencies
 
 - `@opencode-ai/plugin` — Peer dep, provided by OpenCode runtime
-- `ws` — WebSocket library (runtime dependency)
-- `@playwright/test` — E2E testing (dev only)
-- `typescript` — Type checking (dev only)
+- `ws` — WebSocket library (runtime)
+- `@playwright/test`, `typescript` — Dev dependencies
 - `p5.js` — Loaded from CDN in HTML viewer
 
 Keep dependencies minimal — no bundler, no framework.
 
 ## Releasing
 
-**Always use `npm version` to bump and tag — never `git tag` manually.**
+**Always use `npm version` — never `git tag` manually.**
 
 ```bash
-npm version patch   # 2.0.0 → 2.0.1
-npm version minor   # 2.0.0 → 2.1.0
-npm version major   # 2.0.0 → 3.0.0
-```
-
-`npm version` updates `package.json`, creates a git commit, and tags it `v<version>` in one atomic step — no version string typos. Then push the tag:
-
-```bash
+npm version patch   # or minor, major
 git push && git push --tags
 ```
 
-GitHub Actions (`.github/workflows/publish.yml`) picks up the `v*` tag, runs the full test suite, and publishes to npm with OIDC provenance. No npm tokens needed — uses Trusted Publishers.
+`npm version` bumps `package.json`, commits, and tags atomically. The tag push triggers CI to publish to npm with OIDC provenance.
