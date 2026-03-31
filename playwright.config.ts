@@ -6,16 +6,12 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  /* Ignore files that use Bun-specific imports */
-  testIgnore: ['**/viewer.spec.ts', '**/setup.ts'],
   /* Run tests in files in parallel */
   fullyParallel: false, // Sequential for mock server stability
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
     ['html'],
@@ -39,9 +35,19 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
+    /* Parallel tests - can run together */
     {
-      name: 'chromium',
+      name: 'chromium-parallel',
+      testIgnore: ['**/blob-office-visual.spec.ts', '**/viewer.spec.ts', '**/setup.ts'],
       use: { ...devices['Desktop Chrome'] },
+    },
+
+    /* Isolated tests - need exclusive mock server access */
+    {
+      name: 'chromium-isolated',
+      testMatch: 'blob-office-visual.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      workers: 1, // Dedicated single worker for these tests
     },
 
     /* Preview capture — records video for each scenario, outputs to media-previews/ */
