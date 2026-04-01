@@ -8,6 +8,19 @@ Guidelines for AI agents working on this OpenCode visualization plugin.
 
 Blob Office is an OpenCode plugin that visualizes AI coding sessions as animated blob characters in a virtual office. Runs in Bun, communicates over WebSocket, renders via p5.js.
 
+### Canonical Plugin Name
+
+**The npm package name is `opencode-blob-office`.** When referencing this plugin in `opencode.json` or anywhere else, use exactly:
+
+```json
+"plugin": ["opencode-blob-office"]
+```
+
+Do NOT use:
+- `blob-office` — wrong, doesn't exist as npm package
+- `@Caffa/blob-office` — wrong, this is the fork not the original
+- Any other variant
+
 ## Build & Test Commands
 
 ```bash

@@ -908,3 +908,5 @@ if (isServerInstance) {
 		},
 	};
 };
+
+export default BlobOfficePlugin;
