@@ -1,6 +1,6 @@
 {
   "name": "opencode-blob-office",
-  "version": "2.2.3",
+  "version": "2.3.0",
   "description": "Visualize OpenCode sessions as animated blob characters",
   "type": "module",
   "main": "dist/blob-office.js",
