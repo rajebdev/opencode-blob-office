@@ -3,7 +3,7 @@
  * Scenario definitions and helpers for blob-office testing
  */
 
-import type { AgentState, AgentStatus } from "../blob-office.ts";
+import type { AgentState, AgentStatus } from "../blob-office-lib.ts";
 
 export type ScenarioEvent = {
 	timestamp: number; // Relative to scenario start (ms)
@@ -36,6 +36,7 @@ export function createAgent(overrides: Partial<AgentState>): AgentState {
 		color: Math.floor(Math.random() * 360),
 		idleSince: null,
 		activityScale: 1.0,
+		recentFiles: [],
 		...overrides,
 	};
 }

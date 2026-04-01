@@ -16,7 +16,7 @@ import {
 	TOOL_STATUS,
 	toolLabel,
 	toolStatus,
-} from "../../blob-office.ts";
+} from "../../blob-office-lib.ts";
 
 // Clear activity tracking before each test
 beforeEach(() => {

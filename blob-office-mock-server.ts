@@ -6,7 +6,7 @@
  * Uses test ports (2728+) to avoid conflicts with production server.
  */
 
-import type { AgentState } from "./blob-office.ts";
+import type { AgentState } from "./blob-office-lib.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

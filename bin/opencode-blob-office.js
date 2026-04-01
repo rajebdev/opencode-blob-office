@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { cp, mkdir, readFile, writeFile, stat, rm } from "node:fs/promises";
+import { readFile, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_DIR = join(homedir(), ".config/opencode/plugins");
 const OPENCODE_CONFIG = join(homedir(), ".config/opencode/opencode.json");
+const LEGACY_PLUGIN_FILES = [
+	join(PLUGIN_DIR, "blob-office.ts"),
+	join(PLUGIN_DIR, "blob-office.html"),
+];
+
+async function removeIfExists(path) {
+	if (!existsSync(path)) return false;
+	await rm(path, { force: true });
+	return true;
+}
 
 const HELP = `
 Blob Office — OpenCode Visualization Plugin
@@ -29,6 +37,13 @@ After installation:
 async function install() {
 	console.log("📦 Installing Blob Office plugin...\n");
 
+	let removedLegacyFiles = 0;
+	for (const path of LEGACY_PLUGIN_FILES) {
+		if (await removeIfExists(path)) {
+			removedLegacyFiles += 1;
+		}
+	}
+
 	let config = { plugin: [] };
 	if (existsSync(OPENCODE_CONFIG)) {
 		try {
@@ -45,10 +60,21 @@ async function install() {
 
 	if (!config.plugin.includes("opencode-blob-office")) {
 		config.plugin.push("opencode-blob-office");
-		await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
 		console.log(`✓ Registered plugin in opencode.json`);
 	} else {
 		console.log(`✓ Plugin already registered in opencode.json`);
+	}
+
+	const legacyIdx = config.plugin.indexOf("blob-office");
+	if (legacyIdx !== -1) {
+		config.plugin.splice(legacyIdx, 1);
+		console.log(`✓ Removed legacy blob-office entry from opencode.json`);
+	}
+
+	await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
+
+	if (removedLegacyFiles > 0) {
+		console.log(`✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
 	}
 
 	console.log(`\n✅ Blob Office installed successfully!\n`);
@@ -61,11 +87,14 @@ async function install() {
 async function uninstall() {
 	console.log("🗑️  Uninstalling Blob Office plugin...\n");
 
-	// Remove old local plugin file if it exists
-	const oldPluginFile = join(PLUGIN_DIR, "blob-office.ts");
-	if (existsSync(oldPluginFile)) {
-		await rm(oldPluginFile);
-		console.log(`✓ Removed ${oldPluginFile}`);
+	let removedLegacyFiles = 0;
+	for (const path of LEGACY_PLUGIN_FILES) {
+		if (await removeIfExists(path)) {
+			removedLegacyFiles += 1;
+		}
+	}
+	if (removedLegacyFiles > 0) {
+		console.log(`✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
 	}
 
 	// Remove plugin registration from opencode.json

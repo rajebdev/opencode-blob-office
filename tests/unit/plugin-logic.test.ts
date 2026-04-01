@@ -4,7 +4,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "bun:test";
-import { BlobOfficePlugin } from "../../blob-office.ts";
+import BlobOfficePlugin from "../../blob-office.ts";
 import {
 	createMockPlugin,
 	delay,
