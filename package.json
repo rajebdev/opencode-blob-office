@@ -3,12 +3,15 @@
   "version": "2.3.0",
   "description": "Visualize OpenCode sessions as animated blob characters",
   "type": "module",
-  "main": "dist/blob-office.js",
+  "main": "blob-office.ts",
   "bin": {
     "opencode-blob-office": "bin/opencode-blob-office.js"
   },
   "files": [
+    "blob-office.ts",
+    "blob-office.html",
     "dist/",
+    "bin/",
     "LICENSE",
     "README.md"
   ],
@@ -26,10 +29,8 @@
     "url": "git+https://github.com/cbrunnkvist/opencode-blob-office.git"
   },
   "scripts": {
-    "build": "bun build blob-office.ts --outdir dist --target node && cp blob-office.html dist/",
+    "build": "bun build blob-office.ts --outdir dist --target bun --format esm && cp blob-office.html dist/",
     "prepublishOnly": "bun run build",
-    "install:opencode": "bun run build && bash install.sh",
-    "plugin-installer": "bash install.sh",
     "mock-server": "bun run blob-office-mock-server.ts 2727",
     "test": "bun tests/run-tests.ts",
     "test:unit": "bun tests/run-tests.ts --unit",
