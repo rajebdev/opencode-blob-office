@@ -384,12 +384,12 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		}, 25000); // Heartbeat every 25 seconds
 	}
 
-	// Start cleanup interval to remove idle subagents after 10 seconds
 	function startIdleCleanup() {
 		if (idleCleanupInterval) return;
 		idleCleanupInterval = setInterval(() => {
 			const now = Date.now();
 			const toDelete: string[] = [];
+			const parentsToUpdate: string[] = [];
 
 			for (const [id, agent] of agents) {
 				if (agent.parentID) {
@@ -398,12 +398,18 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 						if (idleTime > 10000) {
 							diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s`);
 							toDelete.push(id);
+							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
+								parentsToUpdate.push(agent.parentID);
+							}
 						}
 					} else if (agent.status === "waiting") {
 						const waitingTime = now - agent.since;
 						if (waitingTime > 30000) {
 							diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s`);
 							toDelete.push(id);
+							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
+								parentsToUpdate.push(agent.parentID);
+							}
 						}
 					}
 				} else {
@@ -425,6 +431,25 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				for (const id of toDelete) {
 					agents.delete(id);
 				}
+				
+				for (const parentId of parentsToUpdate) {
+					const parent = agents.get(parentId);
+					if (parent && parent.status === "waiting") {
+						const hasRemainingSubagents = [...agents.values()].some(
+							a => a.parentID === parentId
+						);
+						if (!hasRemainingSubagents) {
+							diag(`Parent ${parentId.substring(0, 8)} has no more subagents, returning to idle`);
+							updateAgent(parentId, {
+								status: "idle",
+								tool: null,
+								message: "💤 waiting",
+								idleSince: now,
+							});
+						}
+					}
+				}
+				
 				broadcast();
 			}
 		}, 1000);
@@ -876,12 +901,24 @@ if (isServerInstance) {
 				// Status updates (thinking, etc)
 				case "session.status": {
 					const sessionID = eventProps.sessionID as string;
-					const status = (eventProps.status as string).toLowerCase();
+					const statusObj = eventProps.status as { type: string };
 					if (!sessionID || !agents.has(sessionID)) return;
-					if (status === "thinking" || status === "generating") {
+					
+					const statusType = statusObj?.type || (eventProps.status as string).toLowerCase();
+					
+					if (statusType === "thinking" || statusType === "generating" || statusType === "busy") {
 						updateAgent(sessionID, {
 							status: "thinking",
 							message: "🧠 thinking…",
+						});
+					} else if (statusType === "idle") {
+						const agent = agents.get(sessionID)!;
+						const isSubagent = agent.parentID !== null;
+						updateAgent(sessionID, {
+							status: "idle",
+							tool: null,
+							message: isSubagent ? "💤 done" : "💤 waiting",
+							idleSince: isSubagent ? Date.now() : null,
 						});
 					}
 					break;

@@ -1054,7 +1054,7 @@ function drawFiddlingObject(p, sp, status, r, now, alpha) {
 
 // ── Update status transition ─────────────────────────────────────────────────
 
-function updateStatusTransition(sp, newStatus, deltaTime = 1/60) {
+function updateStatusTransition(sp, newStatus, deltaTime) {
   const cfg = STATUS_CFG[newStatus] || STATUS_CFG.idle;
 
   // If status changed, update target values
@@ -1066,14 +1066,14 @@ function updateStatusTransition(sp, newStatus, deltaTime = 1/60) {
     sp.targetAlpha = cfg.opacity;
     // Bob speed based on status
     if (newStatus === "idle") sp.targetBobSpeed = 0.8;
-    else if (newStatus === "editing") sp.targetBobSpeed = 1.5; // Reduced from 3 to 1.5 - calmer breathing
+    else if (newStatus === "editing") sp.targetBobSpeed = 1.5;
     else if (newStatus === "running") sp.targetBobSpeed = 5;
     else sp.targetBobSpeed = 2;
   }
 
-  // Use eased lerp for smoother, more gradual transitions
-  // This creates a more natural "breathing" effect during status changes
-  const lerpFactor = easeInOutCubic(deltaTime * 3);  // ~0.3 seconds for full transition
+  // Frame-rate independent lerp: clamp to prevent overshooting on large deltaTime
+  const lerpSpeed = 3; // Speed factor (higher = faster transition)
+  const lerpFactor = Math.min(deltaTime * lerpSpeed, 1);
 
   sp.currentPulse += (sp.targetPulse - sp.currentPulse) * lerpFactor;
   sp.currentRadius += (sp.targetRadius - sp.currentRadius) * lerpFactor;
@@ -1083,8 +1083,8 @@ function updateStatusTransition(sp, newStatus, deltaTime = 1/60) {
 
 // ── Update wander/pacing ───────────────────────────────────────────────────
 
-function updateWander(sp, now) {
-  sp.wanderTimer -= 1/60;
+function updateWander(sp, now, deltaTime) {
+  sp.wanderTimer -= deltaTime;
   if (sp.wanderTimer <= 0) {
     // New wander target
     sp.wanderTimer = 3 + Math.random() * 5;
@@ -1092,23 +1092,25 @@ function updateWander(sp, now) {
     sp.wanderTarget.y = (Math.random() - 0.5) * 30;
   }
 
-  // Smoothly move toward wander target
-  sp.wanderOffset.x += (sp.wanderTarget.x - sp.wanderOffset.x) * 0.02;
-  sp.wanderOffset.y += (sp.wanderTarget.y - sp.wanderOffset.y) * 0.02;
+  // Frame-rate independent lerp
+  const wanderSpeed = 1.2;
+  const lerpFactor = Math.min(deltaTime * wanderSpeed, 1);
+  sp.wanderOffset.x += (sp.wanderTarget.x - sp.wanderOffset.x) * lerpFactor;
+  sp.wanderOffset.y += (sp.wanderTarget.y - sp.wanderOffset.y) * lerpFactor;
 }
 
 // ── Update blinking ───────────────────────────────────────────────────────
 
-function updateBlinking(sp, now) {
-  sp.blinkTimer -= 1/60;
+function updateBlinking(sp, now, deltaTime) {
+  sp.blinkTimer -= deltaTime;
   if (sp.isBlinking && sp.blinkTimer <= 0) {
     // Blink finished → open eyes, schedule next blink
     sp.isBlinking = false;
-    sp.blinkTimer = 2 + Math.random() * 4;  // Next blink in 2-6 seconds
+    sp.blinkTimer = 2 + Math.random() * 4;
   } else if (!sp.isBlinking && sp.blinkTimer <= 0) {
     // Time to blink → close eyes
     sp.isBlinking = true;
-    sp.blinkTimer = 0.1;  // Blink duration
+    sp.blinkTimer = 0.1;
   }
 }
 
@@ -1218,6 +1220,7 @@ new p5((p) => {
     drawFloor(p);
 
     const now = p.millis() / 1000;
+    const deltaTime = Math.min(p.deltaTime / 1000, 0.1); // Cap at 100ms to prevent lag spikes
 
     // Clean up agents that have finished fading out
     let agentsRemoved = false;
@@ -1328,29 +1331,29 @@ new p5((p) => {
         const sprite = agent._sprite;
 
         // Update status transition (smooth morph between states)
-        updateStatusTransition(sprite, agent.status);
+        updateStatusTransition(sprite, agent.status, deltaTime);
 
         // Sync recent files for code panel animation
         sprite.recentFiles = agent.recentFiles;
 
         // Update wandering/pacing behavior
-        updateWander(sprite, now);
+        updateWander(sprite, now, deltaTime);
 
         // Update blinking
-        updateBlinking(sprite, now);
+        updateBlinking(sprite, now, deltaTime);
 
         // Update idle eye expression
         const otherAgentsActive = mainAgents.some(other => other.id !== agent.id && other.status !== "idle");
-        updateIdleEyes(sprite, now, agent.status, otherAgentsActive);
+        updateIdleEyes(sprite, now, agent.status, otherAgentsActive, deltaTime);
 
         // Move sprite toward target + wander offset (with spring physics)
         sprite.tx = targetX + sprite.wanderOffset.x;
         sprite.ty = targetY - 20 + sprite.wanderOffset.y;
 
-        // Spring physics for natural, smooth movement
-        // Higher stiffness = faster response, higher damping = less oscillation
+        // Spring physics for natural, smooth movement (frame-rate independent)
         const stiffness = 0.03;
         const damping = 0.85;
+        const dampingFactor = Math.pow(damping, deltaTime * 60); // Scale damping by frame time
 
         // Apply repulsion as an offset to the target position
         const repulsionX = Number.isFinite(sprite.repulsionX) ? sprite.repulsionX : 0;
@@ -1361,11 +1364,11 @@ new p5((p) => {
         const dxPos = effectiveTx - sprite.x;
         const dyPos = effectiveTy - sprite.y;
 
-        sprite.vx = sprite.vx * damping + dxPos * stiffness;
-        sprite.vy = sprite.vy * damping + dyPos * stiffness;
+        sprite.vx = sprite.vx * dampingFactor + dxPos * stiffness * deltaTime * 60;
+        sprite.vy = sprite.vy * dampingFactor + dyPos * stiffness * deltaTime * 60;
 
-        sprite.x += sprite.vx;
-        sprite.y += sprite.vy;
+        sprite.x += sprite.vx * deltaTime * 60;
+        sprite.y += sprite.vy * deltaTime * 60;
 
         // Use smoothly interpolated visual values (no blending between configs)
         const pulse = Math.sin(now * sprite.currentPulse * Math.PI * 2 + sprite.phase);
