@@ -273,9 +273,14 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 		broadcastTimeout = setTimeout(() => {
 			broadcastTimeout = null;
+			const agentList = [...agents.values()];
+			const subagentCount = agentList.filter(a => a.parentID !== null).length;
+			
+			diag(`Broadcasting ${agentList.length} agents (${subagentCount} subagents) to ${clients.size} clients`);
+			
 			const msg = JSON.stringify({
 				type: "snapshot",
-				agents: [...agents.values()],
+				agents: agentList,
 			});
 
 			// Send to all connected viewer clients
@@ -290,7 +295,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 			if (syncWs && syncWs.readyState === WebSocket.OPEN) {
 				const updateMsg = JSON.stringify({
 					type: "agent_update",
-					agents: [...agents.values()],
+					agents: agentList,
 				});
 				syncWs.send(updateMsg);
 			}
@@ -391,12 +396,19 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 			const toDelete: string[] = [];
 			const parentsToUpdate: string[] = [];
 
+			const totalAgents = agents.size;
+			const subagents = [...agents.values()].filter(a => a.parentID !== null);
+			
+			diag(`Cleanup check: ${totalAgents} total agents, ${subagents.length} subagents`);
+
 			for (const [id, agent] of agents) {
 				if (agent.parentID) {
+					diag(`Subagent ${id.substring(0, 8)}: status=${agent.status}, idleSince=${agent.idleSince ? Math.floor((now - agent.idleSince)/1000) + 's ago' : 'null'}`);
+					
 					if (agent.idleSince) {
 						const idleTime = now - agent.idleSince;
 						if (idleTime > 10000) {
-							diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s`);
+							diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s - DELETING`);
 							toDelete.push(id);
 							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
 								parentsToUpdate.push(agent.parentID);
@@ -405,7 +417,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					} else if (agent.status === "waiting") {
 						const waitingTime = now - agent.since;
 						if (waitingTime > 30000) {
-							diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s`);
+							diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s - DELETING`);
 							toDelete.push(id);
 							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
 								parentsToUpdate.push(agent.parentID);
@@ -420,7 +432,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					if (!hasActiveSubagents && (agent.status === "idle" || agent.status === "waiting")) {
 						const idleTime = agent.idleSince ? now - agent.idleSince : now - agent.since;
 						if (idleTime > 60000) {
-							diag(`Cleanup: main agent ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s (no active subagents)`);
+							diag(`Cleanup: main agent ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s (no active subagents) - DELETING`);
 							toDelete.push(id);
 						}
 					}
@@ -428,6 +440,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 			}
 
 			if (toDelete.length > 0) {
+				diag(`Deleting ${toDelete.length} agents`);
 				for (const id of toDelete) {
 					agents.delete(id);
 				}
@@ -696,7 +709,26 @@ if (isServerInstance) {
 				callID: string;
 			};
 
-			// Track file activity from any tool that touches files
+			if (!agents.has(sessionID)) {
+				diag(`Lazy init: creating agent for unknown session ${sessionID.substring(0, 8)}`);
+				agents.set(sessionID, {
+					id: sessionID,
+					parentID: null,
+					folder: folderName(directory),
+					folderFull: directory,
+					title: null,
+					status: "thinking",
+					tool: null,
+					message: "🧠 thinking…",
+					since: Date.now(),
+					color: hueFromId(sessionID),
+					idleSince: null,
+					activityScale: 1.0,
+					recentFiles: [],
+					lastAssistantMessage: null,
+				});
+			}
+
 			const FILE_TOOLS = ["write", "edit", "multiedit", "read", "glob", "grep", "ls"];
 			if (FILE_TOOLS.includes(tool.toLowerCase())) {
 				try {
@@ -705,20 +737,13 @@ if (isServerInstance) {
 
 					if (filePath && typeof filePath === "string" && !isIgnored(filePath)) {
 						recordFileActivity(sessionID, filePath);
-
-						if (agents.has(sessionID)) {
-							const agent = agents.get(sessionID)!;
-							agent.activityScale = getActivityScale(sessionID);
-							agent.recentFiles = buildRecentFiles(sessionID);
-							broadcast();
-						}
+						const agent = agents.get(sessionID)!;
+						agent.activityScale = getActivityScale(sessionID);
+						agent.recentFiles = buildRecentFiles(sessionID);
 					}
-				} catch {
-					// Silently fail if we can't extract file path
-				}
+				} catch {}
 			}
 
-			if (!sessionID || !agents.has(sessionID)) return;
 			updateAgent(sessionID, {
 				status: toolStatus(tool),
 				tool: tool,
@@ -758,9 +783,8 @@ if (isServerInstance) {
 					const agentAlreadyExists = agents.has(id);
 
 					// Log for debugging - shows session info and agent count
-					log(
-						"info",
-						`Session created: ${id.substring(0, 8)}..., parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, already exists: ${agentAlreadyExists}, agents count: ${agents.size}`,
+					diag(
+						`Session created: ${id.substring(0, 8)}..., parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, isSubAgent: ${isSubAgent}, already exists: ${agentAlreadyExists}, agents count: ${agents.size}`,
 					);
 
 				agents.set(id, {
@@ -780,16 +804,20 @@ if (isServerInstance) {
 					lastAssistantMessage: null,
 				});
 
-					log("info", `Agent added, total agents: ${agents.size}`);
+					diag(`Agent added: ${id.substring(0, 8)}, total agents: ${agents.size}, isSubAgent: ${isSubAgent}`);
 
 					// Subagent born → parent transitions from "spawning" to "supervising"
 					if (isSubAgent && parentID && agents.has(parentID)) {
+						diag(`Updating parent ${parentID.substring(0, 8)} to supervising`);
 						updateAgent(parentID, {
 							status: "waiting",
 							message: "👀 supervising",
 						});
+					} else if (isSubAgent && parentID && !agents.has(parentID)) {
+						diag(`WARNING: Parent ${parentID.substring(0, 8)} not found for subagent ${id.substring(0, 8)}`);
 					}
 
+					diag(`Broadcasting ${agents.size} agents (including new ${isSubAgent ? 'subagent' : 'agent'} ${id.substring(0, 8)})`);
 					broadcast();
 					openViewer(wsPort);
 					break;
