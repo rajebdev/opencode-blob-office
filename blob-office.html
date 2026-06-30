@@ -36,6 +36,87 @@
     #status-bar .dot.connected { background: #0f0; box-shadow: 0 0 6px #0f04; }
     #status-bar span { color: #667; }
     #status-bar .count { color: #aaa; }
+    
+    #theme-selector {
+      position: relative;
+      margin-left: 12px;
+    }
+    #theme-btn {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      color: #888;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: monospace;
+    }
+    #theme-btn:hover {
+      background: #252540;
+      border-color: #3a3a5a;
+    }
+    #theme-dropdown {
+      position: absolute;
+      bottom: 100%;
+      right: 0;
+      margin-bottom: 4px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      display: none;
+      min-width: 100px;
+      box-shadow: 0 -4px 12px rgba(0,0,0,0.5);
+    }
+    #theme-dropdown.show {
+      display: block;
+    }
+    .theme-option {
+      padding: 6px 12px;
+      cursor: pointer;
+      color: #888;
+      font-size: 11px;
+    }
+    .theme-option:hover {
+      background: #252540;
+      color: #aaa;
+    }
+    .theme-option.active {
+      color: #0f0;
+    }
+    
+    body.light-theme {
+      background: #f5f5f5;
+    }
+    body.light-theme #status-bar {
+      background: #ffffffcc;
+      border-top-color: #ddd;
+    }
+    body.light-theme #status-bar span {
+      color: #666;
+    }
+    body.light-theme #theme-btn {
+      background: #fff;
+      border-color: #ddd;
+      color: #666;
+    }
+    body.light-theme #theme-btn:hover {
+      background: #f0f0f0;
+      border-color: #ccc;
+    }
+    body.light-theme #theme-dropdown {
+      background: #fff;
+      border-color: #ddd;
+    }
+    body.light-theme .theme-option {
+      color: #666;
+    }
+    body.light-theme .theme-option:hover {
+      background: #f0f0f0;
+      color: #333;
+    }
+    body.light-theme .theme-option.active {
+      color: #0a0;
+    }
 
     #no-agents {
       position: fixed;
@@ -66,6 +147,14 @@
   <span id="ws-label">connecting…</span>
   <span style="margin-left:auto" class="count" id="agent-count"></span>
   <span id="ws-url">connecting...</span>
+  <div id="theme-selector">
+    <button id="theme-btn">Theme: Dark</button>
+    <div id="theme-dropdown">
+      <div class="theme-option" data-theme="dark">Dark</div>
+      <div class="theme-option" data-theme="light">Light</div>
+      <div class="theme-option" data-theme="system">System</div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
@@ -74,9 +163,61 @@
 
 // WS port is injected by the HTTP server at serve-time
 const BASE_PORT = (typeof window !== 'undefined' && window.BLOB_OFFICE_WS_PORT) || 2727;
-let agents = {};      // id → AgentState
+let agents = {};
 let ws = null;
 let connected = false;
+
+const themeBtn = document.getElementById('theme-btn');
+const themeDropdown = document.getElementById('theme-dropdown');
+const themeOptions = document.querySelectorAll('.theme-option');
+
+let currentTheme = localStorage.getItem('blob-office-theme') || 'dark';
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  localStorage.setItem('blob-office-theme', theme);
+  
+  if (theme === 'system') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.body.className = prefersDark ? '' : 'light-theme';
+    themeBtn.textContent = 'Theme: System';
+  } else if (theme === 'light') {
+    document.body.className = 'light-theme';
+    themeBtn.textContent = 'Theme: Light';
+  } else {
+    document.body.className = '';
+    themeBtn.textContent = 'Theme: Dark';
+  }
+  
+  themeOptions.forEach(opt => {
+    opt.classList.toggle('active', opt.dataset.theme === theme);
+  });
+}
+
+themeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  themeDropdown.classList.toggle('show');
+});
+
+document.addEventListener('click', () => {
+  themeDropdown.classList.remove('show');
+});
+
+themeOptions.forEach(opt => {
+  opt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyTheme(opt.dataset.theme);
+    themeDropdown.classList.remove('show');
+  });
+});
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (currentTheme === 'system') {
+    applyTheme('system');
+  }
+});
+
+applyTheme(currentTheme);
 let lastSnapshotTime = 0;
 let snapshotDebounceTimer = null;
 const SNAPSHOT_DEBOUNCE_MS = 50;  // Min time between processing snapshots
@@ -103,7 +244,8 @@ function scheduleReconnect(delay) {
 }
 
 function connectWS() {
-  const wsUrl = `ws://localhost:${BASE_PORT}/ws`;
+  const wsHost = window.location.hostname || 'localhost';
+  const wsUrl = `ws://${wsHost}:${BASE_PORT}/ws`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
@@ -129,14 +271,13 @@ function connectWS() {
     wsDot.className = "dot";
 
     if (serverClosed) {
-      // Graceful shutdown — blobs are already fading out, don't wipe them
-      // Don't reconnect; the page will close after fade completes
-      wsLabel.textContent = "server closed";
-      wsUrlEl.textContent = "closing…";
+      wsLabel.textContent = "server closed, reconnecting...";
+      wsUrlEl.textContent = "waiting for server...";
+      serverClosed = false;
+      scheduleReconnect(2000);
       return;
     }
 
-    // Unexpected disconnect — fade out all blobs, then reconnect
     const now = Date.now();
     const hadAgents = Object.keys(agents).length > 0;
     for (const id in agents) {
@@ -147,12 +288,10 @@ function connectWS() {
 
     wsLabel.textContent = "disconnected";
 
-    if (reconnectAttempts === 0 && hadAgents) {
-      // First disconnect — give blobs time to fade out, then try reconnecting
-      wsUrlEl.textContent = "reconnecting soon…";
-      scheduleReconnect(2000);
+    if (reconnectAttempts === 0) {
+      wsUrlEl.textContent = "reconnecting…";
+      scheduleReconnect(1000);
     } else {
-      // Subsequent failed reconnect attempts — exponential backoff
       const delay = Math.min(INITIAL_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);
       wsUrlEl.textContent = `retry in ${Math.round(delay / 1000)}s`;
       scheduleReconnect(delay);
@@ -181,28 +320,17 @@ function connectWS() {
         lastSnapshotTime = now;
         processSnapshot(msg.agents);
       } else if (msg.type === "serverclosing") {
-        // Server is shutting down gracefully — fizzle all blobs then close the page
         serverClosed = true;
         connected = false;
         wsDot.className = "dot";
         wsLabel.textContent = "server closed";
 
-        // Start fade-out on all remaining agents
         const now = Date.now();
         for (const id in agents) {
           if (!agents[id]._fadeOutStart) {
             agents[id]._fadeOutStart = now;
           }
         }
-
-        // After fade completes, close the tab (if we're the only viewer)
-        setTimeout(() => {
-          // Only close if no agents remain (i.e. nobody reconnected)
-          const remaining = Object.values(agents).filter(a => !a._fadeOutStart);
-          if (remaining.length === 0) {
-            window.close();
-          }
-        }, 1500);
 
         if (ws) ws.close();
       }
@@ -271,9 +399,19 @@ connectWS();
 
 // ─── p5.js Sketch ─────────────────────────────────────────────────────────────
 
-const FLOOR_COLOR   = [15, 15, 25];
-const GRID_COLOR    = [22, 22, 38];
+const FLOOR_COLOR_DARK = [15, 15, 25];
+const FLOOR_COLOR_LIGHT = [245, 245, 245];
+const GRID_COLOR_DARK = [22, 22, 38];
+const GRID_COLOR_LIGHT = [220, 220, 220];
 const GRID_SIZE     = 48;
+
+function getFloorColor() {
+  return document.body.classList.contains('light-theme') ? FLOOR_COLOR_LIGHT : FLOOR_COLOR_DARK;
+}
+
+function getGridColor() {
+  return document.body.classList.contains('light-theme') ? GRID_COLOR_LIGHT : GRID_COLOR_DARK;
+}
 
 // Zoom scale factor (1.3 = 30% larger)
 const ZOOM = 1.3;
@@ -450,7 +588,6 @@ class Sprite {
 }
 
 function drawSpeechBubble(p, x, y, text, hue, alpha) {
-  // Also check for empty or whitespace-only strings
   if (!text || !text.trim()) return;
   p.push();
   p.textSize(11);
@@ -460,27 +597,86 @@ function drawSpeechBubble(p, x, y, text, hue, alpha) {
   const bx = x - bw / 2;
   const by = y - 72;
 
-  // bubble background
   p.noStroke();
   p.fill(10, 10, 20, alpha * 0.92);
   p.rect(bx, by, bw, bh, 6);
 
-  // border
   p.stroke(p.color(`hsla(${hue}, 70%, 60%, ${alpha / 255})`));
   p.strokeWeight(1);
   p.noFill();
   p.rect(bx, by, bw, bh, 6);
 
-  // tail
   p.noStroke();
   p.fill(10, 10, 20, alpha * 0.92);
   p.triangle(x - 5, by + bh, x + 5, by + bh, x, by + bh + 8);
 
-  // text
   p.noStroke();
   p.fill(220, 220, 255, alpha);
   p.textAlign(p.CENTER, p.CENTER);
   p.text(text, x, by + bh / 2 + 1);
+  p.pop();
+}
+
+function drawMessagePanel(p, x, y, message, hue, alpha) {
+  if (!message || !message.trim()) return;
+  
+  p.push();
+  const maxWidth = 300;
+  const maxHeight = 150;
+  const padding = 12;
+  const lineHeight = 16;
+  
+  p.textSize(11);
+  p.textAlign(p.LEFT, p.TOP);
+  
+  const words = message.split(' ');
+  const lines = [];
+  let currentLine = '';
+  
+  for (const word of words) {
+    const testLine = currentLine + (currentLine ? ' ' : '') + word;
+    const testWidth = p.textWidth(testLine);
+    if (testWidth > maxWidth - padding * 2 && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  
+  const contentHeight = lines.length * lineHeight;
+  const panelHeight = Math.min(contentHeight + padding * 2, maxHeight);
+  const panelWidth = maxWidth;
+  const panelX = x - panelWidth / 2;
+  const panelY = y + 60;
+  
+  p.noStroke();
+  p.fill(10, 10, 20, alpha * 0.95);
+  p.rect(panelX, panelY, panelWidth, panelHeight, 8);
+  
+  p.stroke(p.color(`hsla(${hue}, 60%, 50%, ${alpha / 255})`));
+  p.strokeWeight(2);
+  p.noFill();
+  p.rect(panelX, panelY, panelWidth, panelHeight, 8);
+  
+  p.noStroke();
+  p.fill(220, 230, 255, alpha);
+  
+  const visibleLines = Math.floor((panelHeight - padding * 2) / lineHeight);
+  const displayLines = lines.slice(0, visibleLines);
+  
+  for (let i = 0; i < displayLines.length; i++) {
+    p.text(displayLines[i], panelX + padding, panelY + padding + i * lineHeight);
+  }
+  
+  if (lines.length > visibleLines) {
+    p.fill(150, 150, 180, alpha);
+    p.textAlign(p.RIGHT, p.BOTTOM);
+    p.textSize(10);
+    p.text('...', panelX + panelWidth - padding, panelY + panelHeight - padding);
+  }
+  
   p.pop();
 }
 
@@ -759,8 +955,8 @@ function drawCodePanel(p, sp, r, now, alpha) {
 // ── Floor grid ─────────────────────────────────────────────────────────────
 
 function drawFloor(p) {
-  p.background(...FLOOR_COLOR);
-  p.stroke(...GRID_COLOR);
+  p.background(...getFloorColor());
+  p.stroke(...getGridColor());
   p.strokeWeight(1);
   for (let x = 0; x < p.width; x += GRID_SIZE) {
     p.line(x, 0, x, p.height);
@@ -1358,10 +1554,12 @@ new p5((p) => {
       sprite.previousStatus = agent.status;
       drawFiddlingObject(p, sprite, agent.status, sprite.currentRadius, now, alpha);
 
-      // Speech bubble
       drawSpeechBubble(p, drawX, drawY + bobY, agent.message, agent.color, alpha);
+      
+      if (agent.lastAssistantMessage) {
+        drawMessagePanel(p, drawX, drawY + bobY, agent.lastAssistantMessage, agent.color, alpha);
+      }
 
-      // Name tag
       drawNameTag(p, drawX, drawY, agent.folder, agent.title, agent.color, agent.status);
       } catch {
         // Skip this agent if rendering fails - prevents freeze on disconnect

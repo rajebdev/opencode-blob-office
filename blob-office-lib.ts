@@ -11,6 +11,7 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
+import { existsSync, writeFileSync, unlinkSync, readFileSync } from "fs";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,18 +26,19 @@ export type AgentStatus =
 
 export interface AgentState {
   id: string;
-  parentID: string | null; // ID of parent agent if this is a subagent
-  folder: string; // basename of project directory
-  folderFull: string; // full path
-  title: string | null; // session title
+  parentID: string | null;
+  folder: string;
+  folderFull: string;
+  title: string | null;
   status: AgentStatus;
-  tool: string | null; // current tool being executed
-  message: string | null; // last speech bubble text
-  since: number; // timestamp of last status change (ms)
-  color: number; // hue 0–360, derived from session id
-  idleSince: number | null; // timestamp when subagent went idle (for cleanup)
-  activityScale: number; // 1.0 = normal, up to 2.5 (based on files modified)
-  recentFiles: string[]; // basenames of recently touched files (padded with cap variants)
+  tool: string | null;
+  message: string | null;
+  since: number;
+  color: number;
+  idleSince: number | null;
+  activityScale: number;
+  recentFiles: string[];
+  lastAssistantMessage: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -355,28 +357,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	}
 
 	async function openViewer(wsPortToUse: number) {
-		// Don't open browser if server was already running (from previous OpenCode session)
-		// or if running in a test/CI environment
-		if (browserOpened || serverWasAlreadyRunning || process.env.NODE_ENV === "test" || process.env.CI) return;
-		browserOpened = true;
-
-		// Open the unified server URL (serves both HTML and WebSocket)
-		const viewerUrl = `http://localhost:${wsPortToUse}/`;
-
-		const platform = process.platform;
-		const cmd =
-			platform === "darwin"
-				? ["open", viewerUrl]
-				: platform === "win32"
-					? ["cmd", "/c", "start", "", viewerUrl]
-					: ["xdg-open", viewerUrl];
-
-		try {
-			// Don't await - opening browser should never block the plugin
-			Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
-		} catch {
-			log("info", `Open viewer manually: ${viewerUrl}`);
-		}
+		return;
 	}
 
 	// ── Bun WebSocket Server ─────────────────────────────────────────────────
@@ -411,12 +392,31 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 			const toDelete: string[] = [];
 
 			for (const [id, agent] of agents) {
-				// Only cleanup subagents (have parentID) that have been idle for 10+ seconds
-				if (agent.parentID && agent.status === "idle" && agent.idleSince) {
-					const idleTime = now - agent.idleSince;
-					if (idleTime > 10000) {
-						// 10 seconds
-						toDelete.push(id);
+				if (agent.parentID) {
+					if (agent.idleSince) {
+						const idleTime = now - agent.idleSince;
+						if (idleTime > 10000) {
+							diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s`);
+							toDelete.push(id);
+						}
+					} else if (agent.status === "waiting") {
+						const waitingTime = now - agent.since;
+						if (waitingTime > 30000) {
+							diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s`);
+							toDelete.push(id);
+						}
+					}
+				} else {
+					const hasActiveSubagents = [...agents.values()].some(
+						a => a.parentID === id && !a.idleSince
+					);
+					
+					if (!hasActiveSubagents && (agent.status === "idle" || agent.status === "waiting")) {
+						const idleTime = agent.idleSince ? now - agent.idleSince : now - agent.since;
+						if (idleTime > 60000) {
+							diag(`Cleanup: main agent ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s (no active subagents)`);
+							toDelete.push(id);
+						}
 					}
 				}
 			}
@@ -427,11 +427,73 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				}
 				broadcast();
 			}
-		}, 1000); // Check every second
+		}, 1000);
 	}
 
 	diag("Starting WebSocket server setup...");
 	
+	// Global lock to prevent multiple server instances
+	const lockFile = `${process.env.HOME}/.config/opencode/blob-office.lock`;
+	
+	// Check if server already running via lock file
+	if (existsSync(lockFile)) {
+		try {
+			const lockContent = readFileSync(lockFile, 'utf-8');
+			const lockData = JSON.parse(lockContent);
+			const lockPort = lockData.port || WS_BASE_PORT;
+			
+			diag(`Lock file exists, connecting to existing server on port ${lockPort}`);
+			serverWasAlreadyRunning = true;
+			wsPort = lockPort;
+			
+			// Connect as client to existing server
+			const wsUrl = `ws://localhost:${wsPort}/ws`;
+			syncWs = new WebSocket(wsUrl);
+
+			syncWs.onopen = () => {
+				log("info", "Connected to existing Blob Office server as client");
+				if (agents.size > 0) {
+					const syncMsg = JSON.stringify({
+						type: "full_sync",
+						agents: [...agents.values()],
+					});
+					syncWs?.send(syncMsg);
+					log("info", `Sent ${agents.size} agents to server during sync`);
+				}
+			};
+
+			syncWs.onmessage = (ev) => {
+				try {
+					const msg = JSON.parse(ev.data);
+					if (msg.type === "snapshot") {
+						for (const agent of msg.agents) {
+							if (!agents.has(agent.id)) {
+								agents.set(agent.id, agent);
+							} else {
+								const existing = agents.get(agent.id)!;
+								Object.assign(existing, agent);
+							}
+						}
+					}
+				} catch (err) {
+					log("warn", `Failed to process sync message: ${(err as Error).message}`);
+				}
+			};
+
+			syncWs.onerror = () => {
+				log("warn", "Error connecting to existing server");
+			};
+			
+			diag("Plugin initialization COMPLETE (client mode), returning hooks");
+		} catch (err) {
+			diag(`Lock file invalid, will try to start server: ${err}`);
+			// Lock file corrupted, delete and continue to start server
+			try { unlinkSync(lockFile); } catch {}
+		}
+	}
+	
+	// Only start server if no lock file or lock file was invalid
+	if (!serverWasAlreadyRunning) {
 	// Find available port (serves both HTTP and WebSocket on the same port)
 	for (let portAttempt = 0; portAttempt < WS_MAX_PORT_ATTEMPTS; portAttempt++) {
 		const tryPort = WS_BASE_PORT + portAttempt;
@@ -439,6 +501,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		try {
 			wss = Bun.serve({
 				port: tryPort,
+				hostname: "0.0.0.0",
 				fetch: async (req, server) => {
 					const url = new URL(req.url);
 					
@@ -505,9 +568,12 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					}
 				},
 				},
-			});
-			wsPort = tryPort;
+		});
+		wsPort = tryPort;
 		isServerInstance = true;
+		
+		writeFileSync(lockFile, JSON.stringify({ port: tryPort, pid: process.pid }));
+		
 		diag(`Server started successfully on port ${tryPort}`);
 		break;
 	} catch (err) {
@@ -518,6 +584,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		}
 		throw err;
 	}
+}
 }
 
 if (isServerInstance) {
@@ -545,11 +612,13 @@ if (isServerInstance) {
 				wss = null;
 			}
 
-			// Clear intervals so nothing keeps the process alive
-			if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-			if (idleCleanupInterval) { clearInterval(idleCleanupInterval); idleCleanupInterval = null; }
-			if (broadcastTimeout) { clearTimeout(broadcastTimeout); broadcastTimeout = null; }
-		};
+		// Clear intervals so nothing keeps the process alive
+		if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+		if (idleCleanupInterval) { clearInterval(idleCleanupInterval); idleCleanupInterval = null; }
+		if (broadcastTimeout) { clearTimeout(broadcastTimeout); broadcastTimeout = null; }
+		
+		try { unlinkSync(lockFile); } catch {}
+	};
 
 		process.on("beforeExit", shutdown);
 		process.on("SIGINT", shutdown);
@@ -586,48 +655,6 @@ if (isServerInstance) {
 		
 		diag(`WebSocket: ${wsUrl}`);
 		diag(`Open viewer: ${viewerUrl}`);
-	} else {
-		diag("No server - connecting as client...");
-		log("warn", "No available port found, connecting to existing server as client");
-		serverWasAlreadyRunning = true;
-		const wsUrl = `ws://localhost:${WS_BASE_PORT}`;
-		syncWs = new WebSocket(wsUrl);
-
-			syncWs.onopen = () => {
-			log("info", "Connected to existing Blob Office server as client");
-			if (agents.size > 0) {
-				const syncMsg = JSON.stringify({
-					type: "full_sync",
-					agents: [...agents.values()],
-				});
-				syncWs?.send(syncMsg);
-				log("info", `Sent ${agents.size} agents to server during sync`);
-			} else {
-				log("info", "No local agents to sync to server");
-			}
-		};
-
-		syncWs.onmessage = (ev) => {
-			try {
-				const msg = JSON.parse(ev.data);
-				if (msg.type === "snapshot") {
-					for (const agent of msg.agents) {
-						if (!agents.has(agent.id)) {
-							agents.set(agent.id, agent);
-						} else {
-							const existing = agents.get(agent.id)!;
-							Object.assign(existing, agent);
-						}
-					}
-				}
-			} catch (err) {
-				log("warn", `Failed to process sync message: ${(err as Error).message}`);
-			}
-		};
-
-		syncWs.onerror = () => {
-			log("warn", "Error connecting to existing server");
-		};
 	}
 
 	diag("Plugin initialization COMPLETE, returning hooks");
@@ -711,21 +738,22 @@ if (isServerInstance) {
 						`Session created: ${id.substring(0, 8)}..., parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, already exists: ${agentAlreadyExists}, agents count: ${agents.size}`,
 					);
 
-					agents.set(id, {
-						id,
-						parentID: parentID ?? null,
-						folder: folderName(directory),
-						folderFull: directory,
-						title: title ?? null,
-						status: "idle",
-						tool: null,
-						message: "✨ created",
-						since: Date.now(),
-						color: hueFromId(id),
-						idleSince: null,
-						activityScale: 1.0,
-						recentFiles: [],
-					});
+				agents.set(id, {
+					id,
+					parentID: parentID ?? null,
+					folder: folderName(directory),
+					folderFull: directory,
+					title: title ?? null,
+					status: "idle",
+					tool: null,
+					message: "✨ created",
+					since: Date.now(),
+					color: hueFromId(id),
+					idleSince: null,
+					activityScale: 1.0,
+					recentFiles: [],
+					lastAssistantMessage: null,
+				});
 
 					log("info", `Agent added, total agents: ${agents.size}`);
 
@@ -759,22 +787,23 @@ if (isServerInstance) {
 
 					// If agent doesn't exist yet, create it (edge case - session resumed but not created in this instance)
 					if (!agents.has(id)) {
-						const parentID = (eventProps.parentID as string) ?? null;
-						agents.set(id, {
-							id,
-							parentID: parentID,
-							folder: folderName(directory),
-							folderFull: directory,
-							title: title ?? null,
-							status: "idle",
-							tool: null,
-							message: "↩️ resumed",
-							since: Date.now(),
-							color: hueFromId(id),
-							idleSince: null,
-							activityScale: 1.0,
-							recentFiles: [],
-						});
+					const parentID = (eventProps.parentID as string) ?? null;
+					agents.set(id, {
+						id,
+						parentID: parentID,
+						folder: folderName(directory),
+						folderFull: directory,
+						title: title ?? null,
+						status: "idle",
+						tool: null,
+						message: "↩️ resumed",
+						since: Date.now(),
+						color: hueFromId(id),
+						idleSince: null,
+						activityScale: 1.0,
+						recentFiles: [],
+						lastAssistantMessage: null,
+					});
 						log(
 							"info",
 							`Agent added via session.updated (${id.substring(0, 8)}...), parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, total agents: ${agents.size}`,
@@ -867,22 +896,30 @@ if (isServerInstance) {
 				}
 
 				// Message updated — grab last user-visible content for speech bubble
-				case "message.updated": {
-					const messageInfo = eventProps.info as {
-						id: string;
-						sessionID: string;
-						role: string;
-					};
-					const sessionID = messageInfo?.sessionID;
-					if (!sessionID || !agents.has(sessionID)) return;
-					// Only care about assistant messages
-					if (messageInfo?.role !== "assistant") return;
-					updateAgent(sessionID, {
-						status: "thinking",
-						message: "🧠 thinking…",
-					});
-					break;
-				}
+			case "message.updated": {
+				const messageInfo = eventProps.info as {
+					id: string;
+					sessionID: string;
+					role: string;
+					content?: any;
+					text?: string;
+				};
+				const sessionID = messageInfo?.sessionID;
+				if (!sessionID || !agents.has(sessionID)) return;
+				if (messageInfo?.role !== "assistant") return;
+				
+				const content = messageInfo?.content || messageInfo?.text || "";
+				const textContent = typeof content === 'string' ? content : JSON.stringify(content);
+				
+				diag(`Message updated for ${sessionID.substring(0, 8)}: ${textContent.substring(0, 100)}`);
+				
+				updateAgent(sessionID, {
+					status: "thinking",
+					message: "🧠 thinking…",
+					lastAssistantMessage: textContent,
+				});
+				break;
+			}
 
 				// Permission needed — agent is blocked waiting for human
 				case "permission.updated": {
