@@ -5,8 +5,50 @@
   <title>Blob Office — OpenCode</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    /* Theme Variables */
+    :root, body[data-theme="onedark"] {
+      --bg: #282c34;
+      --surface: #21252b;
+      --text: #abb2bf;
+      --text-muted: #5c6370;
+      --border: #2a2a4a;
+    }
+    
+    body[data-theme="dracula"] {
+      --bg: #282a36;
+      --surface: #44475a;
+      --text: #f8f8f2;
+      --text-muted: #6272a4;
+      --border: #44475a;
+    }
+    
+    body[data-theme="nord"] {
+      --bg: #2e3440;
+      --surface: #3b4252;
+      --text: #d8dee9;
+      --text-muted: #88c0d0;
+      --border: #4c566a;
+    }
+    
+    body[data-theme="github"] {
+      --bg: #0d1117;
+      --surface: #1f2328;
+      --text: #f0f6fc;
+      --text-muted: #9198a1;
+      --border: #484f58;
+    }
+    
+    body[data-theme="light"] {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --text: #24292f;
+      --text-muted: #57606a;
+      --border: #d0d7de;
+    }
+    
     body {
-      background: #0d0d14;
+      background: var(--bg);
       overflow: hidden;
       font-family: monospace;
     }
@@ -16,14 +58,14 @@
       position: fixed;
       bottom: 0; left: 0; right: 0;
       height: 28px;
-      background: #111120cc;
-      border-top: 1px solid #2a2a4a;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
       display: flex;
       align-items: center;
       padding: 0 14px;
       gap: 18px;
       font-size: 11px;
-      color: #555;
+      color: var(--text-muted);
       backdrop-filter: blur(4px);
       z-index: 10;
     }
@@ -34,17 +76,17 @@
       flex-shrink: 0;
     }
     #status-bar .dot.connected { background: #0f0; box-shadow: 0 0 6px #0f04; }
-    #status-bar span { color: #667; }
-    #status-bar .count { color: #aaa; }
+    #status-bar span { color: var(--text-muted); }
+    #status-bar .count { color: var(--text); }
     
     #theme-selector {
       position: relative;
       margin-left: 12px;
     }
     #theme-btn {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      color: #888;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
       padding: 4px 10px;
       border-radius: 4px;
       cursor: pointer;
@@ -52,16 +94,15 @@
       font-family: monospace;
     }
     #theme-btn:hover {
-      background: #252540;
-      border-color: #3a3a5a;
+      opacity: 0.8;
     }
     #theme-dropdown {
       position: absolute;
       bottom: 100%;
       right: 0;
       margin-bottom: 4px;
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 4px;
       display: none;
       min-width: 100px;
@@ -73,51 +114,16 @@
     .theme-option {
       padding: 6px 12px;
       cursor: pointer;
-      color: #888;
+      color: var(--text);
       font-size: 11px;
     }
     .theme-option:hover {
-      background: #252540;
-      color: #aaa;
+      opacity: 0.8;
     }
     .theme-option.active {
       color: #0f0;
     }
     
-    body.light-theme {
-      background: #f5f5f5;
-    }
-    body.light-theme #status-bar {
-      background: #ffffffcc;
-      border-top-color: #ddd;
-    }
-    body.light-theme #status-bar span {
-      color: #666;
-    }
-    body.light-theme #theme-btn {
-      background: #fff;
-      border-color: #ddd;
-      color: #666;
-    }
-    body.light-theme #theme-btn:hover {
-      background: #f0f0f0;
-      border-color: #ccc;
-    }
-    body.light-theme #theme-dropdown {
-      background: #fff;
-      border-color: #ddd;
-    }
-    body.light-theme .theme-option {
-      color: #666;
-    }
-    body.light-theme .theme-option:hover {
-      background: #f0f0f0;
-      color: #333;
-    }
-    body.light-theme .theme-option.active {
-      color: #0a0;
-    }
-
     #no-agents {
       position: fixed;
       inset: 0;
@@ -125,7 +131,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #2a2a4a;
+      color: var(--text-muted);
       font-size: 13px;
       gap: 10px;
       pointer-events: none;
@@ -139,7 +145,7 @@
 <div id="no-agents">
   <div class="big">🏢</div>
   <div>Waiting for OpenCode sessions…</div>
-  <div style="font-size:11px;color:#1e1e3a">Start a session in OpenCode to spawn an agent</div>
+  <div style="font-size:11px;opacity:0.7">Start a session in OpenCode to spawn an agent</div>
 </div>
 
 <div id="status-bar">
@@ -148,9 +154,12 @@
   <span style="margin-left:auto" class="count" id="agent-count"></span>
   <span id="ws-url">connecting...</span>
   <div id="theme-selector">
-    <button id="theme-btn">Theme: Dark</button>
+    <button id="theme-btn">Theme: One Dark Pro</button>
     <div id="theme-dropdown">
-      <div class="theme-option" data-theme="dark">Dark</div>
+      <div class="theme-option" data-theme="onedark">One Dark Pro</div>
+      <div class="theme-option" data-theme="dracula">Dracula</div>
+      <div class="theme-option" data-theme="nord">Nord</div>
+      <div class="theme-option" data-theme="github">GitHub Dark</div>
       <div class="theme-option" data-theme="light">Light</div>
       <div class="theme-option" data-theme="system">System</div>
     </div>
@@ -177,17 +186,26 @@ function applyTheme(theme) {
   currentTheme = theme;
   localStorage.setItem('blob-office-theme', theme);
   
+  // Map legacy values
+  let effectiveTheme = theme;
+  if (theme === 'dark') effectiveTheme = 'onedark';
+  
   if (theme === 'system') {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    document.body.className = prefersDark ? '' : 'light-theme';
+    effectiveTheme = prefersDark ? 'onedark' : 'light';
     themeBtn.textContent = 'Theme: System';
-  } else if (theme === 'light') {
-    document.body.className = 'light-theme';
-    themeBtn.textContent = 'Theme: Light';
   } else {
-    document.body.className = '';
-    themeBtn.textContent = 'Theme: Dark';
+    // Get display name from THEME_CONFIG
+    const themeConfig = THEME_CONFIG[effectiveTheme];
+    if (themeConfig) {
+      themeBtn.textContent = 'Theme: ' + themeConfig.name;
+    } else {
+      themeBtn.textContent = 'Theme: One Dark Pro';
+    }
   }
+  
+  // Set data-theme attribute for CSS
+  document.body.setAttribute('data-theme', effectiveTheme);
   
   themeOptions.forEach(opt => {
     opt.classList.toggle('active', opt.dataset.theme === theme);
@@ -217,7 +235,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   }
 });
 
-applyTheme(currentTheme);
+// applyTheme will be called after THEME_CONFIG is defined
 let lastSnapshotTime = 0;
 let snapshotDebounceTimer = null;
 const SNAPSHOT_DEBOUNCE_MS = 50;  // Min time between processing snapshots
@@ -399,19 +417,146 @@ connectWS();
 
 // ─── p5.js Sketch ─────────────────────────────────────────────────────────────
 
-const FLOOR_COLOR_DARK = [15, 15, 25];
-const FLOOR_COLOR_LIGHT = [245, 245, 245];
-const GRID_COLOR_DARK = [22, 22, 38];
-const GRID_COLOR_LIGHT = [220, 220, 220];
-const GRID_SIZE     = 48;
+const GRID_SIZE = 48;
 
+// ─── Theme Helper Functions ───────────────────────────────────────────────────
+
+function getCurrentTheme() {
+  const saved = localStorage.getItem('blob-office-theme') || 'dark';
+  // Map legacy values: 'dark' → 'onedark', 'light' → 'light'
+  if (saved === 'dark') return 'onedark';
+  if (saved === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'onedark' : 'light';
+  }
+  return THEME_CONFIG[saved] ? saved : 'onedark';
+}
+
+function getThemeColor(property) {
+  const theme = getCurrentTheme();
+  return THEME_CONFIG[theme][property];
+}
+
+// Keep existing function names for compatibility
 function getFloorColor() {
-  return document.body.classList.contains('light-theme') ? FLOOR_COLOR_LIGHT : FLOOR_COLOR_DARK;
+  return getThemeColor('floor');
 }
 
 function getGridColor() {
-  return document.body.classList.contains('light-theme') ? GRID_COLOR_LIGHT : GRID_COLOR_DARK;
+  return getThemeColor('grid');
 }
+
+// ─── Theme Configuration ──────────────────────────────────────────────────────
+
+const THEME_CONFIG = {
+  onedark: {
+    name: 'One Dark Pro',
+    floor: [40, 44, 52],
+    grid: [50, 54, 62],
+    panelBg: [33, 37, 43],
+    text: [171, 178, 191],
+    textMuted: [92, 99, 112],
+    eye: [10, 10, 30],
+    shadow: [0, 0, 0, 60],
+    code: null // Will reference ONE_DARK
+  },
+  dracula: {
+    name: 'Dracula',
+    floor: [40, 42, 54],
+    grid: [68, 71, 90],
+    panelBg: [68, 71, 90],
+    text: [248, 248, 242],
+    textMuted: [98, 114, 164],
+    eye: [10, 10, 30],
+    shadow: [0, 0, 0, 60],
+    code: null // Will reference ONE_DARK
+  },
+  nord: {
+    name: 'Nord',
+    floor: [46, 52, 64],
+    grid: [59, 66, 82],
+    panelBg: [59, 66, 82],
+    text: [216, 222, 233],
+    textMuted: [136, 192, 208],
+    eye: [10, 10, 30],
+    shadow: [0, 0, 0, 60],
+    code: null // Will reference ONE_DARK
+  },
+  github: {
+    name: 'GitHub Dark',
+    floor: [13, 17, 23],
+    grid: [31, 35, 40],
+    panelBg: [31, 35, 40],
+    text: [240, 246, 252],
+    textMuted: [145, 152, 161],
+    eye: [10, 10, 30],
+    shadow: [0, 0, 0, 60],
+    code: null // Will reference ONE_DARK
+  },
+  light: {
+    name: 'Light',
+    floor: [255, 255, 255],
+    grid: [220, 220, 220],
+    panelBg: [246, 248, 250],
+    text: [36, 41, 47],
+    textMuted: [87, 96, 106],
+    eye: [36, 41, 47],
+    shadow: [0, 0, 0, 20],
+    code: null // Will reference ONE_LIGHT
+  }
+};
+
+// ─── WCAG Contrast Validation (Dev Tool) ─────────────────────────────────────
+
+function validateThemeContrast(themeName) {
+  const theme = THEME_CONFIG[themeName];
+  const results = [];
+  
+  // Helper: calculate relative luminance
+  function getLuminance(rgb) {
+    const [r, g, b] = rgb.map(v => {
+      v = v / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  
+  // Helper: calculate contrast ratio
+  function getContrast(rgb1, rgb2) {
+    const l1 = getLuminance(rgb1);
+    const l2 = getLuminance(rgb2);
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  
+  // Test text on panel background (4.5:1 required)
+  const textOnPanel = getContrast(theme.text, theme.panelBg);
+  results.push(`Text on Panel: ${textOnPanel.toFixed(2)}:1 ${textOnPanel >= 4.5 ? '✓' : '✗ FAIL'}`);
+  
+  // Test text on floor (4.5:1 required)
+  const textOnFloor = getContrast(theme.text, theme.floor);
+  results.push(`Text on Floor: ${textOnFloor.toFixed(2)}:1 ${textOnFloor >= 4.5 ? '✓' : '✗ FAIL'}`);
+  
+  // Test eye on floor (3:1 required for UI)
+  const eyeOnFloor = getContrast(theme.eye, theme.floor);
+  results.push(`Eye on Floor: ${eyeOnFloor.toFixed(2)}:1 ${eyeOnFloor >= 3.0 ? '✓' : '✗ FAIL'}`);
+  
+  console.log(`\n=== ${theme.name} Contrast Validation ===`);
+  results.forEach(r => console.log(r));
+  
+  return results.every(r => r.includes('✓'));
+}
+
+// Run validation for all themes (dev only - add ?validate to URL)
+if (typeof window !== 'undefined' && window.location.search.includes('validate')) {
+  setTimeout(() => {
+    console.log('\n🎨 WCAG AA Contrast Validation\n');
+    Object.keys(THEME_CONFIG).forEach(validateThemeContrast);
+  }, 1000);
+}
+
+// Initialize theme after THEME_CONFIG is defined
+applyTheme(currentTheme);
 
 // Zoom scale factor (1.3 = 30% larger)
 const ZOOM = 1.3;
@@ -598,7 +743,7 @@ function drawSpeechBubble(p, x, y, text, hue, alpha) {
   const by = y - 72;
 
   p.noStroke();
-  p.fill(10, 10, 20, alpha * 0.92);
+  p.fill(...getThemeColor('panelBg'), alpha * 0.92);
   p.rect(bx, by, bw, bh, 6);
 
   p.stroke(p.color(`hsla(${hue}, 70%, 60%, ${alpha / 255})`));
@@ -607,11 +752,11 @@ function drawSpeechBubble(p, x, y, text, hue, alpha) {
   p.rect(bx, by, bw, bh, 6);
 
   p.noStroke();
-  p.fill(10, 10, 20, alpha * 0.92);
+  p.fill(...getThemeColor('panelBg'), alpha * 0.92);
   p.triangle(x - 5, by + bh, x + 5, by + bh, x, by + bh + 8);
 
   p.noStroke();
-  p.fill(220, 220, 255, alpha);
+  p.fill(...getThemeColor('text'), alpha);
   p.textAlign(p.CENTER, p.CENTER);
   p.text(text, x, by + bh / 2 + 1);
   p.pop();
@@ -652,7 +797,7 @@ function drawMessagePanel(p, x, y, message, hue, alpha) {
   const panelY = y + 60;
   
   p.noStroke();
-  p.fill(10, 10, 20, alpha * 0.95);
+  p.fill(...getThemeColor('panelBg'), alpha * 0.95);
   p.rect(panelX, panelY, panelWidth, panelHeight, 8);
   
   p.stroke(p.color(`hsla(${hue}, 60%, 50%, ${alpha / 255})`));
@@ -661,7 +806,7 @@ function drawMessagePanel(p, x, y, message, hue, alpha) {
   p.rect(panelX, panelY, panelWidth, panelHeight, 8);
   
   p.noStroke();
-  p.fill(220, 230, 255, alpha);
+  p.fill(...getThemeColor('text'), alpha);
   
   const visibleLines = Math.floor((panelHeight - padding * 2) / lineHeight);
   const displayLines = lines.slice(0, visibleLines);
@@ -671,7 +816,7 @@ function drawMessagePanel(p, x, y, message, hue, alpha) {
   }
   
   if (lines.length > visibleLines) {
-    p.fill(150, 150, 180, alpha);
+    p.fill(...getThemeColor('textMuted'), alpha);
     p.textAlign(p.RIGHT, p.BOTTOM);
     p.textSize(10);
     p.text('...', panelX + panelWidth - padding, panelY + panelHeight - padding);
@@ -694,7 +839,7 @@ function drawSpeechBubbleSubagent(p, x, y, text, hue, alpha) {
 
   // bubble background
   p.noStroke();
-  p.fill(10, 10, 20, alpha * 0.92);
+  p.fill(...getThemeColor('panelBg'), alpha * 0.92);
   p.rect(bx, by, bw, bh, 4);
 
   // border
@@ -705,12 +850,12 @@ function drawSpeechBubbleSubagent(p, x, y, text, hue, alpha) {
 
   // tail
   p.noStroke();
-  p.fill(10, 10, 20, alpha * 0.92);
+  p.fill(...getThemeColor('panelBg'), alpha * 0.92);
   p.triangle(x - 3, by + bh, x + 3, by + bh, x, by + bh + 5);
 
   // text
   p.noStroke();
-  p.fill(220, 220, 255, alpha);
+  p.fill(...getThemeColor('text'), alpha);
   p.textAlign(p.CENTER, p.CENTER);
   p.text(text, x, by + bh / 2 + 1);
   p.pop();
@@ -729,6 +874,25 @@ const ONE_DARK = {
   variable: [224, 108, 117],// #e06c75 (red/pink)
   operator: [212, 218, 226], // #d8dee9
 };
+
+// One Light Theme colors (high contrast for light backgrounds)
+const ONE_LIGHT = {
+  bg: [250, 250, 250],     // #fafafa
+  comment: [160, 161, 167],// #a0a1a7 (gray)
+  string: [80, 161, 79],   // #50a14f (green)
+  number: [152, 104, 1],   // #986801 (orange)
+  keyword: [166, 38, 164], // #a626a4 (purple)
+  function: [64, 120, 242],// #4078f2 (blue)
+  variable: [228, 86, 73], // #e45649 (red)
+  operator: [56, 58, 66],  // #383a42 (dark gray)
+};
+
+// Link code themes to THEME_CONFIG
+THEME_CONFIG.onedark.code = ONE_DARK;
+THEME_CONFIG.dracula.code = ONE_DARK;
+THEME_CONFIG.nord.code = ONE_DARK;
+THEME_CONFIG.github.code = ONE_DARK;
+THEME_CONFIG.light.code = ONE_LIGHT;
 
 // Fallback code snippets — programmer humor / infamous filenames
 const FALLBACK_SNIPPETS = [
@@ -863,11 +1027,11 @@ function drawCodePanel(p, sp, r, now, alpha) {
   // Draw panel background with rounded corners
   p.push();
   p.noStroke();
-  p.fill(...ONE_DARK.bg, Math.floor(panelAlpha * 0.95));
+  p.fill(...getThemeColor('code').bg, Math.floor(panelAlpha * 0.95));
   p.rect(panelLeft, panelTop, panelW, panelH, 4);
 
   // Panel border
-  p.stroke(...ONE_DARK.string, Math.floor(panelAlpha * 0.6));
+  p.stroke(...getThemeColor('code').string, Math.floor(panelAlpha * 0.6));
   p.strokeWeight(1);
   p.noFill();
   p.rect(panelLeft, panelTop, panelW, panelH, 4);
@@ -907,12 +1071,12 @@ function drawCodePanel(p, sp, r, now, alpha) {
     const visibleText = snippet.substring(0, visibleChars);
 
     // Single color for all code (using function color - nice blue)
-    p.fill(...ONE_DARK.function, Math.floor(panelAlpha * 0.95));
+    p.fill(...getThemeColor('code').function, Math.floor(panelAlpha * 0.95));
     p.text(visibleText, textX, textY);
 
     // Blinking cursor at end
     if (phase === 'showCode' && Math.sin(now * 6) > 0) {
-      p.fill(...ONE_DARK.function, Math.floor(panelAlpha * 0.8));
+      p.fill(...getThemeColor('code').function, Math.floor(panelAlpha * 0.8));
       p.rect(textX + p.textWidth(visibleText) + 2, textY - 3, 2, 5, 0.5);
     }
   }
@@ -933,7 +1097,7 @@ function drawCodePanel(p, sp, r, now, alpha) {
 
         // Randomly skip some pixels for "breaking apart" effect
         if (Math.random() > 0.3) {
-          p.fill(...ONE_DARK.bg, Math.floor(pixelAlphaVal * 0.6));
+          p.fill(...getThemeColor('code').bg, Math.floor(pixelAlphaVal * 0.6));
           p.rect(panelLeft + px + offsetX, panelTop + py + offsetY, pixelSize - 2, pixelSize - 2, 2);
         }
       }
@@ -1165,7 +1329,7 @@ function drawNameTag(p, x, y, folder, title, hue, status) {
   const by = y + 32;
 
   p.noStroke();
-  p.fill(10, 10, 20, 200);
+  p.fill(...getThemeColor('panelBg'), 200);
   p.rect(bx, by, bw, bh, 3);
 
   const hsl = `hsla(${hue}, 70%, 65%, 0.9)`;
@@ -1427,7 +1591,8 @@ new p5((p) => {
       // Main blob body
       p.noStroke();
       // Shadow (affected by wander)
-      p.fill(0, 0, 0, 60);
+      const shadowColor = getThemeColor('shadow');
+      p.fill(...shadowColor);
       p.ellipse(drawX + 2 + sprite.wanderOffset.x * 0.3, drawY + radius * 0.8 + 4, radius * 1.6 * scale * widthBias, radius * 0.5 * scale);
 
       // Body gradient simulation - add red tint for error state
@@ -1458,7 +1623,7 @@ new p5((p) => {
 
       if (eyeMode === "blink" || eyeMode === "closed") {
         // Closed eyes (horizontal lines) — zen meditation look
-        p.stroke(10, 10, 30, alpha);
+        p.stroke(...getThemeColor('eye'), alpha);
         p.strokeWeight(2);
         const eyeSpacing = radius * 0.35 * eyeScaleX;
         p.line(drawX - eyeSpacing, eyeY, drawX - eyeSpacing * 0.3, eyeY);
@@ -1466,27 +1631,27 @@ new p5((p) => {
         p.noStroke();
       } else if (eyeMode === "halfLid") {
         // Half-lidded drowsy eyes — smaller, sleepy
-        p.fill(255, 255, 255, alpha * 0.7);
+        p.fill(...getThemeColor('text'), alpha * 0.7);
         const eyeWidth = 5 * eyeScaleX;
         const eyeHeight = 3 * eyeScaleY;  // Squished vertically
         const eyeXOffset = radius * 0.22 * eyeScaleX;
         p.ellipse(drawX - eyeXOffset, eyeY + 1, eyeWidth, eyeHeight);
         p.ellipse(drawX + eyeXOffset, eyeY + 1, eyeWidth, eyeHeight);
         // Tiny pupils looking down
-        p.fill(10, 10, 30, alpha * 0.8);
+        p.fill(...getThemeColor('eye'), alpha * 0.8);
         const pupilWidth = 2 * eyeScaleX;
         const pupilHeight = 2 * eyeScaleY;
         p.ellipse(drawX - eyeXOffset, eyeY + 1.5, pupilWidth, pupilHeight);
         p.ellipse(drawX + eyeXOffset, eyeY + 1.5, pupilWidth, pupilHeight);
         // Eyelid line on top
-        p.stroke(10, 10, 30, alpha * 0.4);
+        p.stroke(...getThemeColor('eye'), alpha * 0.4);
         p.strokeWeight(1);
         p.line(drawX - eyeXOffset - 3, eyeY - 0.5, drawX - eyeXOffset + 3, eyeY);
         p.line(drawX + eyeXOffset - 3, eyeY, drawX + eyeXOffset + 3, eyeY - 0.5);
         p.noStroke();
       } else if (eyeMode === "peek" || eyeMode === "glance") {
         // Curious peek / glance — open eyes looking to one side
-        p.fill(255, 255, 255, alpha * 0.9);
+        p.fill(...getThemeColor('text'), alpha * 0.9);
         const eyeWidth = 5 * eyeScaleX;
         const eyeHeight = (eyeMode === "peek" ? 4.5 : 6) * eyeScaleY;
         const eyeXOffset = radius * 0.22 * eyeScaleX;
@@ -1494,14 +1659,14 @@ new p5((p) => {
         p.ellipse(drawX + eyeXOffset, eyeY, eyeWidth, eyeHeight);
         // Pupils shifted in glance direction
         const glanceShift = sprite.idleGlanceDir * 1.5 * eyeScaleX;
-        p.fill(10, 10, 30, alpha);
+        p.fill(...getThemeColor('eye'), alpha);
         const pupilWidth = 2.5 * eyeScaleX;
         const pupilHeight = 3 * eyeScaleY;
         p.ellipse(drawX - eyeXOffset + glanceShift, eyeY, pupilWidth, pupilHeight);
         p.ellipse(drawX + eyeXOffset + glanceShift, eyeY, pupilWidth, pupilHeight);
       } else {
         // Normal open eyes (active states)
-        p.fill(255, 255, 255, alpha * 0.9);
+        p.fill(...getThemeColor('text'), alpha * 0.9);
         const eyeWidth = 5 * eyeScaleX;
         const eyeHeight = 6 * eyeScaleY;
         const eyeXOffset = radius * 0.22 * eyeScaleX;
@@ -1526,7 +1691,7 @@ new p5((p) => {
 
         const pupilWidth = 2.5 * eyeScaleX;
         const pupilHeight = 3 * eyeScaleY;
-        p.fill(10, 10, 30, alpha);
+        p.fill(...getThemeColor('eye'), alpha);
         p.ellipse(drawX - eyeXOffset + pupilShift, eyeY + pupilV, pupilWidth, pupilHeight);
         p.ellipse(drawX + eyeXOffset + pupilShift, eyeY + pupilV, pupilWidth, pupilHeight);
       }
@@ -1534,7 +1699,7 @@ new p5((p) => {
       // Error expression (X_X eyes) — overlay on top of whatever eye state
       if (isError) {
         const eyeXOffset = radius * 0.22 * eyeScaleX;
-        p.stroke(10, 10, 30, alpha);
+        p.stroke(...getThemeColor('eye'), alpha);
         p.strokeWeight(1.5);
         // X eyes
         const ex1 = drawX - eyeXOffset, ey1 = eyeY - 1;
@@ -1674,7 +1839,8 @@ new p5((p) => {
         p.noStroke();
 
         // Shadow
-        p.fill(0, 0, 0, 40 * fadeAlpha);
+        const subShadowColor = getThemeColor('shadow');
+        p.fill(subShadowColor[0], subShadowColor[1], subShadowColor[2], (subShadowColor[3] || 60) * 0.67 * fadeAlpha);
         p.ellipse(drawX + 1, drawY + radius * 0.6 + 2, radius * 1.4, radius * 0.4);
 
         // Body - rounded rectangle for subagents (different from main agents' ellipse)
@@ -1697,31 +1863,31 @@ new p5((p) => {
         const subEyeMode = sprite.isBlinking ? "blink"
           : (subagent.status === "idle" ? sprite.idleEyeState : "open");
         if (subEyeMode === "blink" || subEyeMode === "closed") {
-          p.stroke(10, 10, 30, eyeAlpha);
+          p.stroke(...getThemeColor('eye'), eyeAlpha);
           p.strokeWeight(1.5);
           p.line(drawX - radius * 0.3, eyeY, drawX - radius * 0.1, eyeY);
           p.line(drawX + radius * 0.1, eyeY, drawX + radius * 0.3, eyeY);
           p.noStroke();
         } else if (subEyeMode === "halfLid") {
-          p.fill(255, 255, 255, eyeAlpha * 0.7);
+          p.fill(...getThemeColor('text'), eyeAlpha * 0.7);
           p.ellipse(drawX - radius * 0.2, eyeY + 0.5, eyeSize + 1, eyeSize * 0.6);
           p.ellipse(drawX + radius * 0.2, eyeY + 0.5, eyeSize + 1, eyeSize * 0.6);
-          p.fill(10, 10, 30, eyeAlpha * 0.8);
+          p.fill(...getThemeColor('eye'), eyeAlpha * 0.8);
           p.ellipse(drawX - radius * 0.2, eyeY + 1, 2, 1.5);
           p.ellipse(drawX + radius * 0.2, eyeY + 1, 2, 1.5);
         } else if (subEyeMode === "peek" || subEyeMode === "glance") {
-          p.fill(255, 255, 255, eyeAlpha * 0.9);
+          p.fill(...getThemeColor('text'), eyeAlpha * 0.9);
           p.ellipse(drawX - radius * 0.2, eyeY, eyeSize + 1, subEyeMode === "peek" ? eyeSize + 1 : eyeSize + 2);
           p.ellipse(drawX + radius * 0.2, eyeY, eyeSize + 1, subEyeMode === "peek" ? eyeSize + 1 : eyeSize + 2);
           const glanceShift = sprite.idleGlanceDir * 1;
-          p.fill(10, 10, 30, eyeAlpha);
+          p.fill(...getThemeColor('eye'), eyeAlpha);
           p.ellipse(drawX - radius * 0.2 + glanceShift, eyeY, 2, 2.5);
           p.ellipse(drawX + radius * 0.2 + glanceShift, eyeY, 2, 2.5);
         } else {
-          p.fill(255, 255, 255, eyeAlpha * 0.9);
+          p.fill(...getThemeColor('text'), eyeAlpha * 0.9);
           p.ellipse(drawX - radius * 0.2, eyeY, eyeSize + 1, eyeSize + 2);
           p.ellipse(drawX + radius * 0.2, eyeY, eyeSize + 1, eyeSize + 2);
-          p.fill(10, 10, 30, eyeAlpha);
+          p.fill(...getThemeColor('eye'), eyeAlpha);
           p.ellipse(drawX - radius * 0.2, eyeY, 2, 2.5);
           p.ellipse(drawX + radius * 0.2, eyeY, 2, 2.5);
         }
@@ -1736,7 +1902,7 @@ new p5((p) => {
     // ── Empty office hint ──────────────────────────────────────────────────
     if (agentList.length === 0 && !connected) {
       p.push();
-      p.fill(30, 30, 60, 200);
+      p.fill(...getThemeColor('textMuted'), 200);
       p.noStroke();
       p.textSize(12);
       p.textAlign(p.CENTER);
