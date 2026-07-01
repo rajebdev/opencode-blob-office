@@ -1245,7 +1245,6 @@ new p5((p) => {
 
     const agentList = Object.values(agents);
 
-    // Separate main agents from subagents
     const mainAgents = agentList.filter(agent => !agent.parentID);
     const subAgents = agentList.filter(agent => agent.parentID);
 
@@ -1572,9 +1571,22 @@ new p5((p) => {
     // ── Draw subagents (smaller, orbiting around parent) ────────────────────
     for (const subagent of subAgents) {
       try {
-        // Find parent agent to orbit around
         const parent = agents[subagent.parentID];
-        if (!parent || !parent._sprite) continue;
+        if (!parent) continue;
+        
+        if (!parent._sprite) {
+          const [px, py] = getAgentPosition(parent.id, p.width, p.height);
+          parent._sprite = new Sprite(px, py - 20, parent.color);
+          const cfg = STATUS_CFG[parent.status] || STATUS_CFG.idle;
+          parent._sprite.currentStatus = parent.status;
+          parent._sprite.targetStatus = parent.status;
+          parent._sprite.currentPulse = cfg.pulse;
+          parent._sprite.currentRadius = cfg.radius;
+          parent._sprite.currentAlpha = cfg.opacity;
+          parent._sprite.targetPulse = cfg.pulse;
+          parent._sprite.targetRadius = cfg.radius;
+          parent._sprite.targetAlpha = cfg.opacity;
+        }
 
         const parentSprite = parent._sprite;
         // Use parent's CURRENT position for accurate orbit center
@@ -1592,24 +1604,25 @@ new p5((p) => {
         // Ensure sprite exists with subagent flag
         if (!subagent._sprite) {
           subagent._sprite = new Sprite(parentSprite.x, parentSprite.y, subagentHue, true);
-          // Initialize visual state from current status config
           const statusConfig = STATUS_CFG[subagent.status] || STATUS_CFG.idle;
           subagent._sprite.currentStatus = subagent.status;
           subagent._sprite.targetStatus = subagent.status;
           subagent._sprite.currentPulse = statusConfig.pulse;
-          subagent._sprite.currentRadius = statusConfig.radius * 0.6;  // 60% of main agent size
+          subagent._sprite.currentRadius = statusConfig.radius * 0.6;
           subagent._sprite.currentAlpha = statusConfig.opacity;
           subagent._sprite.targetPulse = statusConfig.pulse;
           subagent._sprite.targetRadius = statusConfig.radius * 0.6;
           subagent._sprite.targetAlpha = statusConfig.opacity;
+          subagent._sprite.currentOrbitRadius = 45 * ZOOM;
+          subagent._sprite.targetOrbitRadius = 45 * ZOOM;
+          subagent._sprite.orbitRadius = 45 * ZOOM;
         }
         const sprite = subagent._sprite;
         sprite.isSubagent = true;
 
-        // Update status transition
-        updateStatusTransition(sprite, subagent.status);
+        updateStatusTransition(sprite, subagent.status, deltaTime);
         sprite.recentFiles = subagent.recentFiles;
-        updateBlinking(sprite, now);
+        updateBlinking(sprite, now, deltaTime);
         updateIdleEyes(sprite, now, subagent.status, false);
 
         // Calculate fade out if agent is being removed
@@ -1654,7 +1667,6 @@ new p5((p) => {
         const drawX = orbitCenterX + orbitOffsetX;
         const drawY = orbitCenterY + orbitOffsetY + bobY;
 
-        // Draw connecting line to parent (subtle)
         const lineAlpha = 30 * (alpha / 255);  // Scale with current alpha
         p.stroke(subagentHue, 60, 50, lineAlpha * fadeAlpha);
         p.strokeWeight(1);
