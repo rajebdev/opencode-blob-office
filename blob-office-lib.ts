@@ -318,47 +318,38 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 
 	let browserOpened = false;
 	let serverWasAlreadyRunning = false;
-	let cachedRawHtml: string | null = null;
 
 	async function getHtmlWithWsPort(injectedWsPort: number): Promise<string> {
-		if (!cachedRawHtml) {
-			// Find and read the HTML file — check multiple locations
-			const htmlPaths: string[] = [];
+		const htmlPaths: string[] = [];
 
-			// 1. Same directory as this .ts file (works for installed plugins)
-			const selfDir = new URL(".", import.meta.url).pathname;
-			htmlPaths.push(`${selfDir}blob-office.html`);
+		const selfDir = new URL(".", import.meta.url).pathname;
+		htmlPaths.push(`${selfDir}blob-office.html`);
 
-			// 2. Try resolving from node_modules (installed via npm/bun)
-			try {
-				const pkgJson = import.meta.resolve("opencode-blob-office/package.json");
-				const pkgDir = new URL(".", pkgJson).pathname;
-				htmlPaths.push(`${pkgDir}blob-office.html`);
-			} catch {
-				// Not installed as npm package — OK, try fallbacks
-			}
-
-			// 3. Current working directory (local dev)
-			htmlPaths.push(`${process.cwd()}/blob-office.html`);
-
-			for (const htmlPath of htmlPaths) {
-				try {
-					const file = Bun.file(htmlPath);
-					if (await file.exists()) {
-						cachedRawHtml = await file.text();
-						break;
-					}
-				} catch {
-					// Try next path
-				}
-			}
-
-			if (!cachedRawHtml) throw new Error("Could not find blob-office.html");
+		try {
+			const pkgJson = import.meta.resolve("opencode-blob-office/package.json");
+			const pkgDir = new URL(".", pkgJson).pathname;
+			htmlPaths.push(`${pkgDir}blob-office.html`);
+		} catch {
 		}
 
-		// Always inject the WS port fresh into the raw (unmodified) HTML
+		htmlPaths.push(`${process.cwd()}/blob-office.html`);
+
+		let rawHtml: string | null = null;
+		for (const htmlPath of htmlPaths) {
+			try {
+				const file = Bun.file(htmlPath);
+				if (await file.exists()) {
+					rawHtml = await file.text();
+					break;
+				}
+			} catch {
+			}
+		}
+
+		if (!rawHtml) throw new Error("Could not find blob-office.html");
+
 		const injection = `<script>window.BLOB_OFFICE_WS_PORT = ${injectedWsPort};</script>`;
-		return cachedRawHtml.replace("<script>", injection + "\n<script>");
+		return rawHtml.replace("<script>", injection + "\n<script>");
 	}
 
 	async function openViewer(wsPortToUse: number) {
@@ -710,23 +701,8 @@ if (isServerInstance) {
 			};
 
 			if (!agents.has(sessionID)) {
-				diag(`Lazy init: creating agent for unknown session ${sessionID.substring(0, 8)}`);
-				agents.set(sessionID, {
-					id: sessionID,
-					parentID: null,
-					folder: folderName(directory),
-					folderFull: directory,
-					title: null,
-					status: "thinking",
-					tool: null,
-					message: "🧠 thinking…",
-					since: Date.now(),
-					color: hueFromId(sessionID),
-					idleSince: null,
-					activityScale: 1.0,
-					recentFiles: [],
-					lastAssistantMessage: null,
-				});
+				diag(`Skipping tool.execute.before for unknown session ${sessionID.substring(0, 8)} - likely cleaned up`);
+				return;
 			}
 
 			const FILE_TOOLS = ["write", "edit", "multiedit", "read", "glob", "grep", "ls"];
@@ -762,32 +738,36 @@ if (isServerInstance) {
 			});
 		},
 
-		// Unified event hook - handles all session events
-		event: async ({ event }) => {
-			const eventProps = event.properties as Record<string, unknown>;
+			// Unified event hook - handles all session events
+			event: async ({ event }) => {
+				const eventProps = event.properties as Record<string, unknown>;
 
-			switch (event.type) {
-				// New session created
-				case "session.created": {
-					const sessionInfo = eventProps.info as {
-						id: string;
-						parentID?: string;
-						title: string;
-					};
-					const id = sessionInfo.id;
-					const parentID = sessionInfo.parentID;
-					const title = sessionInfo.title;
-					const isSubAgent = !!parentID;
+				switch (event.type) {
+					case "session.created": {
+						diag(`RAW session.created event: ${JSON.stringify(eventProps, null, 2)}`);
+						
+						const sessionInfo = eventProps.info as {
+							id: string;
+							parentID?: string;
+							title: string;
+						};
+						const id = sessionInfo.id;
+						const parentID = sessionInfo.parentID;
+						const title = sessionInfo.title;
+						const isSubAgent = !!parentID;
 
-					// Check if agent already exists before adding
 					const agentAlreadyExists = agents.has(id);
 
-					// Log for debugging - shows session info and agent count
 					diag(
 						`Session created: ${id.substring(0, 8)}..., parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, isSubAgent: ${isSubAgent}, already exists: ${agentAlreadyExists}, agents count: ${agents.size}`,
 					);
 
-				agents.set(id, {
+					if (agentAlreadyExists) {
+						diag(`Agent ${id.substring(0, 8)} already exists, skipping recreation`);
+						break;
+					}
+
+					agents.set(id, {
 					id,
 					parentID: parentID ?? null,
 					folder: folderName(directory),
@@ -823,83 +803,45 @@ if (isServerInstance) {
 					break;
 				}
 
-				// Session updated (includes when session is resumed/focused)
-				case "session.updated": {
-					const sessionInfo = eventProps.info as {
-						id: string;
-						title?: string;
-					};
-					const id = sessionInfo.id;
-					const title = sessionInfo.title;
+					// Session updated (includes when session is resumed/focused)
+					case "session.updated": {
+						const sessionInfo = eventProps.info as {
+							id: string;
+							title?: string;
+						};
+						const id = sessionInfo.id;
+						const title = sessionInfo.title;
 
-					const agentExists = agents.has(id);
-					log(
-						"info",
-						`Session updated: ${id.substring(0, 8)}..., agent exists: ${agentExists}, agents count: ${agents.size}`,
-					);
+						if (!agents.has(id)) {
+							diag(`Skipping session.updated for unknown agent ${id.substring(0, 8)} - likely cleaned up`);
+							break;
+						}
 
-					// If agent doesn't exist yet, create it (edge case - session resumed but not created in this instance)
-					if (!agents.has(id)) {
-					const parentID = (eventProps.parentID as string) ?? null;
-					agents.set(id, {
-						id,
-						parentID: parentID,
-						folder: folderName(directory),
-						folderFull: directory,
-						title: title ?? null,
-						status: "idle",
-						tool: null,
-						message: "↩️ resumed",
-						since: Date.now(),
-						color: hueFromId(id),
-						idleSince: null,
-						activityScale: 1.0,
-						recentFiles: [],
-						lastAssistantMessage: null,
-					});
-						log(
-							"info",
-							`Agent added via session.updated (${id.substring(0, 8)}...), parentID: ${parentID ? parentID.substring(0, 8) + "..." : "none"}, total agents: ${agents.size}`,
-						);
-					} else {
-						// Agent already exists - check if it was just created (session.created already ran)
-						// If message is "✨ created", don't override with "resumed"
 						const existing = agents.get(id)!;
 						const isNewSession = existing.message === "✨ created";
-
 						const isActive = ACTIVE_STATES.includes(existing.status);
-
-						// Sub-agents should never show "resumed" - they just show status indicators
 						const isSubAgent = existing.parentID !== null;
 
-						// Build update patch based on current state
 						const updatePatch: Partial<AgentState> = {};
 
 						if (isActive) {
-							// Preserve active state and current message - don't show "resumed"
-							// The agent is doing something (thinking, editing, etc.), keep showing that
 						} else if (isNewSession || isSubAgent) {
-							// New sessions and sub-agents don't show "resumed", just stay in their current idle/waiting state
 							updatePatch.status = "idle";
 							updatePatch.tool = null;
 							updatePatch.message = null;
-						} else {
-							// Already idle main agent — only update title if changed, don't spam "resumed"
 						}
 
 						if (title) {
 							updatePatch.title = title;
 						}
 
-						// Only update if we have changes to make
 						if (Object.keys(updatePatch).length > 0) {
 							updateAgent(id, updatePatch);
 						}
+						broadcast();
+						openViewer(wsPort);
+						break;
 					}
-					broadcast();
-					openViewer(wsPort);
-					break;
-				}
 
 				// Session deleted / closed
 				case "session.deleted": {
@@ -930,7 +872,27 @@ if (isServerInstance) {
 				case "session.status": {
 					const sessionID = eventProps.sessionID as string;
 					const statusObj = eventProps.status as { type: string };
-					if (!sessionID || !agents.has(sessionID)) return;
+					if (!sessionID) return;
+					
+					if (!agents.has(sessionID)) {
+						agents.set(sessionID, {
+							id: sessionID,
+							parentID: null,
+							folder: folderName(directory),
+							folderFull: directory,
+							title: null,
+							status: "thinking",
+							tool: null,
+							message: "🧠 thinking…",
+							since: Date.now(),
+							color: hueFromId(sessionID),
+							idleSince: null,
+							activityScale: 1.0,
+							recentFiles: [],
+							lastAssistantMessage: null,
+						});
+						broadcast();
+					}
 					
 					const statusType = statusObj?.type || (eventProps.status as string).toLowerCase();
 					
