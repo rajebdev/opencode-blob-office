@@ -225,6 +225,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	const WS_MAX_PORT_ATTEMPTS = 10;
 	let wsPort = WS_BASE_PORT;
 	const agents = new Map<string, AgentState>();
+	const deletedAgents = new Set<string>(); // Track cleaned-up agents
 	const clients = new Set<globalThis.WebSocket>();
 
 	// Helper for structured logging (goes to OpenCode log, not terminal)
@@ -434,6 +435,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				diag(`Deleting ${toDelete.length} agents`);
 				for (const id of toDelete) {
 					agents.delete(id);
+					deletedAgents.add(id); // Mark as deleted
 				}
 				
 				for (const parentId of parentsToUpdate) {
@@ -496,6 +498,9 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 					const msg = JSON.parse(ev.data);
 					if (msg.type === "snapshot") {
 						for (const agent of msg.agents) {
+							// Skip agents that were already cleaned up
+							if (deletedAgents.has(agent.id)) continue;
+							
 							if (!agents.has(agent.id)) {
 								agents.set(agent.id, agent);
 							} else {
@@ -577,6 +582,9 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 								msg.type === "snapshot"
 							) {
 								for (const agent of msg.agents) {
+									// Skip agents that were already cleaned up
+									if (deletedAgents.has(agent.id)) continue;
+									
 									if (!agents.has(agent.id)) {
 										agents.set(agent.id, agent);
 									} else {
