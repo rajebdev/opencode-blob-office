@@ -1226,7 +1226,8 @@ function updateStatusTransition(sp, newStatus, deltaTime) {
     sp.currentStatus = sp.targetStatus;
     sp.targetStatus = newStatus;
     sp.targetPulse = cfg.pulse;
-    sp.targetRadius = cfg.radius;
+    // Apply 0.6x scaling for subagents to keep them smaller than main agents
+    sp.targetRadius = sp.isSubagent ? cfg.radius * 0.6 : cfg.radius;
     sp.targetAlpha = cfg.opacity;
     // Bob speed based on status
     if (newStatus === "idle") sp.targetBobSpeed = 0.8;
