@@ -207,11 +207,11 @@ export function buildRecentFiles(agentId: string, minItems: number = 8): string[
 export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 	// File-based diagnostic - guaranteed visible
 	const diagFile = `${process.env.HOME}/.config/opencode/plugins/blob-office-diag.txt`;
-	const diag = (msg: string) => {
+	const diag = async (msg: string) => {
 		const ts = new Date().toISOString();
 		const line = `[${ts}] ${msg}\n`;
 		try {
-			Bun.write(diagFile, line, { append: true });
+			await Bun.write(diagFile, line);
 		} catch {}
 		console.log(`[blob-office] ${msg}`);
 	};
@@ -396,37 +396,37 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 				if (agent.parentID) {
 					diag(`Subagent ${id.substring(0, 8)}: status=${agent.status}, idleSince=${agent.idleSince ? Math.floor((now - agent.idleSince)/1000) + 's ago' : 'null'}`);
 					
-					if (agent.idleSince) {
-						const idleTime = now - agent.idleSince;
-						if (idleTime > 10000) {
-							diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s - DELETING`);
-							toDelete.push(id);
-							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
-								parentsToUpdate.push(agent.parentID);
-							}
-						}
-					} else if (agent.status === "waiting") {
-						const waitingTime = now - agent.since;
-						if (waitingTime > 30000) {
-							diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s - DELETING`);
-							toDelete.push(id);
-							if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
-								parentsToUpdate.push(agent.parentID);
-							}
+				if (agent.idleSince) {
+					const idleTime = now - agent.idleSince;
+					if (idleTime > 600000) {
+						diag(`Cleanup: ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s - DELETING`);
+						toDelete.push(id);
+						if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
+							parentsToUpdate.push(agent.parentID);
 						}
 					}
+				} else if (agent.status === "waiting") {
+					const waitingTime = now - agent.since;
+					if (waitingTime > 600000) {
+						diag(`Cleanup: ${id.substring(0, 8)} waiting for ${Math.floor(waitingTime/1000)}s - DELETING`);
+						toDelete.push(id);
+						if (agent.parentID && !parentsToUpdate.includes(agent.parentID)) {
+							parentsToUpdate.push(agent.parentID);
+						}
+					}
+				}
 				} else {
 					const hasActiveSubagents = [...agents.values()].some(
 						a => a.parentID === id && !a.idleSince
 					);
 					
-					if (!hasActiveSubagents && (agent.status === "idle" || agent.status === "waiting")) {
-						const idleTime = agent.idleSince ? now - agent.idleSince : now - agent.since;
-						if (idleTime > 60000) {
-							diag(`Cleanup: main agent ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s (no active subagents) - DELETING`);
-							toDelete.push(id);
-						}
+				if (!hasActiveSubagents && (agent.status === "idle" || agent.status === "waiting")) {
+					const idleTime = agent.idleSince ? now - agent.idleSince : now - agent.since;
+					if (idleTime > 1800000) {
+						diag(`Cleanup: main agent ${id.substring(0, 8)} idle for ${Math.floor(idleTime/1000)}s (no active subagents) - DELETING`);
+						toDelete.push(id);
 					}
+				}
 				}
 			}
 
