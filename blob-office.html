@@ -1468,6 +1468,109 @@ new p5((p) => {
       }
     }
 
+    // ── Initialize repulsion for subagents ────────────────────────────────
+    for (const subagent of subAgents) {
+      if (subagent._sprite) {
+        subagent._sprite.repulsionX = 0;
+        subagent._sprite.repulsionY = 0;
+      }
+    }
+
+    // ── Apply repulsion between subagents and main agents (except parent) ─
+    for (const subagent of subAgents) {
+      if (!subagent._sprite) continue;
+      const parent = agents[subagent.parentID];
+      if (!parent || !parent._sprite) continue;
+
+      const subSprite = subagent._sprite;
+      const subR = subSprite.currentRadius;
+
+      // Calculate subagent's current orbit position
+      const orbitCenterX = parent._sprite.x + parent._sprite.wanderOffset.x;
+      const orbitCenterY = parent._sprite.y + parent._sprite.wanderOffset.y;
+      const orbitOffsetX = Math.cos(subSprite.orbitAngle) * subSprite.orbitRadius;
+      const orbitOffsetY = Math.sin(subSprite.orbitAngle * 0.7) * subSprite.orbitRadius * 0.4 + subSprite.orbitRadius * 0.15;
+      const subX = orbitCenterX + orbitOffsetX;
+      const subY = orbitCenterY + orbitOffsetY;
+
+      // Check collision with all main agents except parent
+      for (const mainAgent of mainAgents) {
+        if (mainAgent.id === subagent.parentID) continue; // Skip parent
+        if (!mainAgent._sprite) continue;
+
+        const mainSprite = mainAgent._sprite;
+        const mainR = mainSprite.currentRadius;
+
+        const dx = subX - mainSprite.x;
+        const dy = subY - mainSprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        const minDist = (subR + mainR) * 1.2; // Larger buffer for subagents
+
+        if (dist < minDist && dist > 0) {
+          const overlap = minDist - dist;
+          const repulsionForce = (overlap / minDist) * REPULSION_STRENGTH * 1.5; // Stronger push
+
+          const nx = dx / dist;
+          const ny = dy / dist;
+
+          // Push subagent away from main agent
+          subSprite.repulsionX += nx * repulsionForce;
+          subSprite.repulsionY += ny * repulsionForce;
+        }
+      }
+    }
+
+    // ── Apply repulsion between subagents themselves ───────────────────────
+    for (let i = 0; i < subAgents.length; i++) {
+      const sub1 = subAgents[i];
+      if (!sub1._sprite) continue;
+      const parent1 = agents[sub1.parentID];
+      if (!parent1 || !parent1._sprite) continue;
+
+      const sp1 = sub1._sprite;
+      const r1 = sp1.currentRadius;
+      const oc1X = parent1._sprite.x + parent1._sprite.wanderOffset.x;
+      const oc1Y = parent1._sprite.y + parent1._sprite.wanderOffset.y;
+      const oo1X = Math.cos(sp1.orbitAngle) * sp1.orbitRadius;
+      const oo1Y = Math.sin(sp1.orbitAngle * 0.7) * sp1.orbitRadius * 0.4 + sp1.orbitRadius * 0.15;
+      const x1 = oc1X + oo1X;
+      const y1 = oc1Y + oo1Y;
+
+      for (let j = i + 1; j < subAgents.length; j++) {
+        const sub2 = subAgents[j];
+        if (!sub2._sprite) continue;
+        const parent2 = agents[sub2.parentID];
+        if (!parent2 || !parent2._sprite) continue;
+
+        const sp2 = sub2._sprite;
+        const r2 = sp2.currentRadius;
+        const oc2X = parent2._sprite.x + parent2._sprite.wanderOffset.x;
+        const oc2Y = parent2._sprite.y + parent2._sprite.wanderOffset.y;
+        const oo2X = Math.cos(sp2.orbitAngle) * sp2.orbitRadius;
+        const oo2Y = Math.sin(sp2.orbitAngle * 0.7) * sp2.orbitRadius * 0.4 + sp2.orbitRadius * 0.15;
+        const x2 = oc2X + oo2X;
+        const y2 = oc2Y + oo2Y;
+
+        const dx = x1 - x2;
+        const dy = y1 - y2;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = (r1 + r2) * 1.1;
+
+        if (dist < minDist && dist > 0) {
+          const overlap = minDist - dist;
+          const repulsionForce = (overlap / minDist) * REPULSION_STRENGTH * 1.2;
+          const nx = dx / dist;
+          const ny = dy / dist;
+
+          sp1.repulsionX += nx * repulsionForce;
+          sp1.repulsionY += ny * repulsionForce;
+          sp2.repulsionX -= nx * repulsionForce;
+          sp2.repulsionY -= ny * repulsionForce;
+        }
+      }
+    }
+
     // ── Draw main agents ───────────────────────────────────────────────────
     for (const agent of mainAgents) {
       try {
@@ -1829,9 +1932,13 @@ new p5((p) => {
         const alpha = sprite.currentAlpha * fadeAlpha;
         const bobY = Math.sin(now * sprite.currentBobSpeed * 0.5 + sprite.phase) * 2;
 
-        // Calculate draw position using stable orbit center
-        const drawX = orbitCenterX + orbitOffsetX;
-        const drawY = orbitCenterY + orbitOffsetY + bobY;
+        // Apply repulsion offset to avoid covering main agents
+        const repulsionX = Number.isFinite(sprite.repulsionX) ? sprite.repulsionX : 0;
+        const repulsionY = Number.isFinite(sprite.repulsionY) ? sprite.repulsionY : 0;
+
+        // Calculate draw position using stable orbit center + repulsion
+        const drawX = orbitCenterX + orbitOffsetX + repulsionX * 15;
+        const drawY = orbitCenterY + orbitOffsetY + bobY + repulsionY * 15;
 
         const lineAlpha = 30 * (alpha / 255);  // Scale with current alpha
         p.stroke(subagentHue, 60, 50, lineAlpha * fadeAlpha);
