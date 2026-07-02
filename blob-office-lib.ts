@@ -213,7 +213,7 @@ export const BlobOfficePlugin: Plugin = async ({ directory, client, $ }) => {
 		try {
 			await Bun.write(diagFile, line);
 		} catch {}
-		console.log(`[blob-office] ${msg}`);
+		console.log(`[opencode-blob-office] ${msg}`);
 	};
 	
 	diag("Plugin initialization START");

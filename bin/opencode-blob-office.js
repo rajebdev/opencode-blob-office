@@ -35,7 +35,7 @@ After installation:
 `;
 
 async function install() {
-	console.log("📦 Installing Blob Office plugin...\n");
+	console.log("[opencode-blob-office] 📦 Installing Blob Office plugin...\n");
 
 	let removedLegacyFiles = 0;
 	for (const path of LEGACY_PLUGIN_FILES) {
@@ -53,39 +53,39 @@ async function install() {
 				config.plugin = [];
 			}
 		} catch {
-			console.log("⚠️  Could not parse existing opencode.json, creating new one");
+			console.log("[opencode-blob-office] ⚠️  Could not parse existing opencode.json, creating new one");
 			config = { plugin: [] };
 		}
 	}
 
 	if (!config.plugin.includes("opencode-blob-office")) {
 		config.plugin.push("opencode-blob-office");
-		console.log(`✓ Registered plugin in opencode.json`);
+		console.log("[opencode-blob-office] ✓ Registered plugin in opencode.json");
 	} else {
-		console.log(`✓ Plugin already registered in opencode.json`);
+		console.log("[opencode-blob-office] ✓ Plugin already registered in opencode.json");
 	}
 
 	const legacyIdx = config.plugin.indexOf("blob-office");
 	if (legacyIdx !== -1) {
 		config.plugin.splice(legacyIdx, 1);
-		console.log(`✓ Removed legacy blob-office entry from opencode.json`);
+		console.log("[opencode-blob-office] ✓ Removed legacy blob-office entry from opencode.json");
 	}
 
 	await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
 
 	if (removedLegacyFiles > 0) {
-		console.log(`✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
+		console.log(`[opencode-blob-office] ✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
 	}
 
-	console.log(`\n✅ Blob Office installed successfully!\n`);
-	console.log(`   OpenCode will automatically install the npm package on startup.`);
-	console.log(`   The viewer opens automatically when OpenCode starts.`);
-	console.log(`   WebSocket will run on ws://localhost:2727 (or next available port)\n`);
-	console.log(`   Restart OpenCode to activate the plugin.\n`);
+	console.log("[opencode-blob-office] \n✅ Blob Office installed successfully!\n");
+	console.log("[opencode-blob-office]    OpenCode will automatically install the npm package on startup.");
+	console.log("[opencode-blob-office]    The viewer opens automatically when OpenCode starts.");
+	console.log("[opencode-blob-office]    WebSocket will run on ws://localhost:2727 (or next available port)\n");
+	console.log("[opencode-blob-office]    Restart OpenCode to activate the plugin.\n");
 }
 
 async function uninstall() {
-	console.log("🗑️  Uninstalling Blob Office plugin...\n");
+	console.log("[opencode-blob-office] 🗑️  Uninstalling Blob Office plugin...\n");
 
 	let removedLegacyFiles = 0;
 	for (const path of LEGACY_PLUGIN_FILES) {
@@ -94,7 +94,7 @@ async function uninstall() {
 		}
 	}
 	if (removedLegacyFiles > 0) {
-		console.log(`✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
+		console.log(`[opencode-blob-office] ✓ Removed ${removedLegacyFiles} legacy local plugin file${removedLegacyFiles === 1 ? "" : "s"}`);
 	}
 
 	// Remove plugin registration from opencode.json
@@ -107,13 +107,13 @@ async function uninstall() {
 				const idx = config.plugin.indexOf("opencode-blob-office");
 				if (idx !== -1) {
 					config.plugin.splice(idx, 1);
-					console.log(`✓ Deregistered opencode-blob-office from opencode.json`);
+					console.log("[opencode-blob-office] ✓ Deregistered opencode-blob-office from opencode.json");
 				}
 				// Also remove old blob-office entry if it exists
 				const oldIdx = config.plugin.indexOf("blob-office");
 				if (oldIdx !== -1) {
 					config.plugin.splice(oldIdx, 1);
-					console.log(`✓ Deregistered legacy blob-office from opencode.json`);
+					console.log("[opencode-blob-office] ✓ Deregistered legacy blob-office from opencode.json");
 				}
 				await writeFile(OPENCODE_CONFIG, JSON.stringify(config, null, 2) + "\n");
 			}
@@ -122,8 +122,8 @@ async function uninstall() {
 		}
 	}
 
-	console.log(`\n✅ Blob Office uninstalled successfully!\n`);
-	console.log(`   Restart OpenCode to complete removal.\n`);
+	console.log("[opencode-blob-office] \n✅ Blob Office uninstalled successfully!\n");
+	console.log("[opencode-blob-office]    Restart OpenCode to complete removal.\n");
 }
 
 async function main() {
@@ -149,13 +149,13 @@ async function main() {
 		console.log(HELP);
 		process.exit(0);
 	} else {
-		console.error(`Unknown command: ${command}`);
+		console.error("[opencode-blob-office] ❌ Unknown command:", command);
 		console.log(HELP);
 		process.exit(1);
 	}
 }
 
 main().catch((err) => {
-	console.error("❌ Error:", err.message);
+	console.error("[opencode-blob-office] ❌ Error:", err.message);
 	process.exit(1);
 });

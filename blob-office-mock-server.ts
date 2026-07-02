@@ -66,7 +66,7 @@ export class BlobOfficeMockServer {
 
 	// Start the mock server
 	async start(): Promise<void> {
-		console.log(`[mock-server] Starting on port ${this.port}...`);
+		console.log(`[opencode-blob-office] Starting on port ${this.port}...`);
 
 		this.wss = Bun.serve({
 			port: this.port,
@@ -107,14 +107,14 @@ export class BlobOfficeMockServer {
 			},
 			websocket: {
 				open: (ws) => {
-					console.log(`[mock-server] Client connected (${this.clients.size + 1} total)`);
+					console.log(`[opencode-blob-office] Client connected (${this.clients.size + 1} total)`);
 					this.clients.add(ws as unknown as globalThis.WebSocket);
 
 					// Send initial snapshot immediately (viewer expects this)
 					this.broadcastSnapshot();
 				},
 				close: (ws) => {
-					console.log(`[mock-server] Client disconnected (${this.clients.size - 1} remaining)`);
+					console.log(`[opencode-blob-office] Client disconnected (${this.clients.size - 1} remaining)`);
 					this.clients.delete(ws as unknown as globalThis.WebSocket);
 				},
 				message: (ws, message) => {
@@ -127,16 +127,16 @@ export class BlobOfficeMockServer {
 		// Start heartbeat (every 25 seconds like real server)
 		this.startHeartbeat();
 
-		console.log(`[mock-server] Ready at ws://localhost:${this.port}/ws`);
-		console.log(`[mock-server] Control endpoints:`);
-		console.log(`  POST /scenario/start - Start a scenario`);
-		console.log(`  POST /scenario/stop - Stop current scenario`);
-		console.log(`  GET /scenario/status - Get current status`);
+		console.log(`[opencode-blob-office] Ready at ws://localhost:${this.port}/ws`);
+		console.log(`[opencode-blob-office] Control endpoints:`);
+		console.log(`[opencode-blob-office]   POST /scenario/start - Start a scenario`);
+		console.log(`[opencode-blob-office]   POST /scenario/stop - Stop current scenario`);
+		console.log(`[opencode-blob-office]   GET /scenario/status - Get current status`);
 	}
 
 	// Stop the mock server
 	async stop(): Promise<void> {
-		console.log("[mock-server] Stopping...");
+		console.log("[opencode-blob-office] Stopping...");
 
 		if (this.scenarioTimeout) {
 			clearTimeout(this.scenarioTimeout);
@@ -165,7 +165,7 @@ export class BlobOfficeMockServer {
 		this.agents.clear();
 		this.currentScenario = null;
 
-		console.log("[mock-server] Stopped");
+		console.log("[opencode-blob-office] Stopped");
 	}
 
 	// Start heartbeat broadcasting
@@ -264,7 +264,7 @@ export class BlobOfficeMockServer {
 
 	// Scenario playback
 	private startScenario(scenario: Scenario): void {
-		console.log(`[mock-server] Starting scenario: ${scenario.name}`);
+		console.log(`[opencode-blob-office] Starting scenario: ${scenario.name}`);
 
 		this.stopScenario(); // Stop any current scenario
 		this.currentScenario = scenario;
@@ -286,7 +286,7 @@ export class BlobOfficeMockServer {
 
 		// Schedule scenario completion
 		this.scenarioTimeout = setTimeout(() => {
-			console.log(`[mock-server] Scenario completed: ${scenario.name}`);
+			console.log(`[opencode-blob-office] Scenario completed: ${scenario.name}`);
 			this.currentScenario = null;
 		}, scenario.duration);
 	}
@@ -298,7 +298,7 @@ export class BlobOfficeMockServer {
 		}
 
 		if (this.currentScenario) {
-			console.log(`[mock-server] Stopped scenario: ${this.currentScenario.name}`);
+			console.log(`[opencode-blob-office] Stopped scenario: ${this.currentScenario.name}`);
 			this.currentScenario = null;
 		}
 
@@ -316,19 +316,19 @@ if (import.meta.main) {
 
 	// Handle graceful shutdown
 	process.on("SIGINT", async () => {
-		console.log("\n[mock-server] Received SIGINT, shutting down...");
+		console.log("\n[opencode-blob-office] Received SIGINT, shutting down...");
 		await server.stop();
 		process.exit(0);
 	});
 
 	process.on("SIGTERM", async () => {
-		console.log("\n[mock-server] Received SIGTERM, shutting down...");
+		console.log("\n[opencode-blob-office] Received SIGTERM, shutting down...");
 		await server.stop();
 		process.exit(0);
 	});
 
 	server.start().catch((err) => {
-		console.error("[mock-server] Failed to start:", err);
+		console.error("[opencode-blob-office] Failed to start:", err);
 		process.exit(1);
 	});
 }
